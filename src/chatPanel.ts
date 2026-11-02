@@ -114,7 +114,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     this.active().updatedAt = Date.now();
     void this.context.workspaceState.update(
       SESSIONS_KEY,
-      this.sessions.map((s) => ({ ...s, history: s.history.slice(-20) }))
+      this.sessions.map((s) => ({ ...s, history: s.history.slice(-100) }))
     );
     void this.context.workspaceState.update(ACTIVE_KEY, this.activeId);
   }
@@ -206,8 +206,23 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     this.webviews.add(webview);
     webview.options = { enableScripts: true };
     webview.html = getHtml(webview);
-    webview.onDidReceiveMessage((m) => void this.onMessage(m));
-    this.initWebview(webview);
+    // Инициализируем только после сигнала 'ready' от webview:
+    // иначе начальные сообщения (сессии, история) могут прийти
+    // до установки обработчика в странице и потеряться — чат выглядит пустым.
+    let inited = false;
+    const initOnce = () => {
+      if (inited) return;
+      inited = true;
+      this.initWebview(webview);
+    };
+    webview.onDidReceiveMessage((m) => {
+      if (m?.type === 'ready') {
+        initOnce();
+        return;
+      }
+      void this.onMessage(m);
+    });
+    setTimeout(initOnce, 1500); // запасной вариант на случай потери 'ready'
   }
 
   private initWebview(webview: vscode.Webview): void {
@@ -1398,6 +1413,8 @@ function getHtml(webview: vscode.Webview): string {
   });
 
   inputEl.focus();
+  // сигнал хосту: страница загружена, можно слать начальное состояние
+  vscode.postMessage({ type: 'ready' });
 })();
 </script>
 </body>

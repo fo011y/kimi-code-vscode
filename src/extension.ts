@@ -96,7 +96,9 @@ export function activate(context: vscode.ExtensionContext): void {
 
   const provider = new ChatViewProvider(context, logChannel);
   context.subscriptions.push(
-    vscode.window.registerWebviewViewProvider(ChatViewProvider.viewId, provider)
+    vscode.window.registerWebviewViewProvider(ChatViewProvider.viewId, provider, {
+      webviewOptions: { retainContextWhenHidden: true },
+    })
   );
 
   // кнопка Kimi в статус-баре (справа внизу) со статусом аккаунта
