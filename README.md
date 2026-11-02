@@ -1,102 +1,105 @@
-# Kimi Code — AI-ассистент для VS Code
+# Kimi Code — AI Assistant for VS Code
 
-Расширение, которое встраивает [Kimi](https://platform.moonshot.ai) (Moonshot AI) в VS Code — по аналогии с расширением Claude Code.
+**🇷🇺 [Читать на русском](README.ru.md)**
 
-## Возможности
+[![Latest Release](https://img.shields.io/github/v/release/fo011y/kimi-code-vscode?label=release)](https://github.com/fo011y/kimi-code-vscode/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/fo011y/kimi-code-vscode/total)](https://github.com/fo011y/kimi-code-vscode/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-- **Чат-панель в сайдбаре** — диалог с Kimi с потоковым выводом, как в Claude Code. Выделенный код автоматически прикрепляется к вопросу как контекст.
-- **Действия с кодом** — из контекстного меню редактора (выделите код → правая кнопка):
-  - `Kimi: Объяснить выделенное`
-  - `Kimi: Исправить выделенное`
-  - `Kimi: Отрефакторить выделенное`
-  - `Kimi: Написать тесты для выделенного`
-- **Правка по инструкции** — `Kimi: Изменить выделенное по инструкции`: опишите, что изменить, увидите diff и подтвердите применение.
-- **Агентский режим** — галочка «Агент» в чате (включена по умолчанию). Kimi получает инструменты:
-  - `read_file`, `list_files`, `search_in_files` — изучение проекта;
-  - `write_file` — создание/изменение файлов с diff-предпросмотром;
-  - `run_command` — запуск shell-команд.
-- **Режимы автономности** — выпадающий список в чате или команда `Kimi: Выбрать режим автономности`:
-  - **Планирование** — Kimi только читает проект и составляет пошаговый план, ничего не меняя;
-  - **Спросить всегда** — каждая правка файла и каждая команда требуют подтверждения;
-  - **Авто-правки** — файлы изменяются без вопросов, команды — с подтверждением;
-  - **Полная автономность** — ⚠️ всё без вопросов: Kimi сам читает проект, правит файлы и запускает команды до выполнения задачи.
-- **Checkpoints / откат** — перед первой правкой каждого файла за сессию сохраняется снимок. Команда `Kimi: Изменения за сессию (откат)` или `/review` в чате: список изменённых файлов, diff «снимок ↔ сейчас», откат по файлу или «Откатить всё».
-- **@-упоминания** — напишите `@src/app.ts` в сообщении, и файл прикрепится к контексту (до 4 файлов). Горячая клавиша `Ctrl+Alt+K` (`Cmd+Alt+K` на Mac) вставляет ссылку на выделенный файл в поле ввода.
-- **Диагностика IDE** — ошибки и предупреждения активного файла автоматически прикрепляются к вопросу; у агента есть инструмент `get_diagnostics` для проверки всего проекта после правок.
-- **Слэш-команды** — `/clear`, `/compact` (сжатие истории в сводку), `/review`, `/plan`, `/ask`, `/auto`, `/fullauto`, `/help`.
-- **История сессий** — диалог сохраняется между перезапусками VS Code (по проекту).
-- **Счётчик токенов** — расход на запрос и на сессию отображается под полем ввода.
-- **Панель принятия правок** — после задачи агента в чате появляется блок «Изменения Kimi»: diff по клику на файл, принять/откатить по файлу или все сразу (✓ / ✗ / «Принять все» / «Откатить все»).
-- **Мультисессии** — вкладки диалогов над чатом: новая (＋), переключение, переименование (двойной клик), удаление (✕). Сессии хранятся по проекту и переживают перезапуск.
-- **Чат во вкладке редактора** — команда `Kimi: Открыть чат в редакторе` открывает тот же чат большой панелью (зеркало сайдбара).
-- **respectGitIgnore** — агент при обходе файлов уважает `.gitignore` (настройка `kimi.respectGitIgnore`).
-- **Прочее** — фокус на чат по `Ctrl+Alt+F`, логи работы агента в канале вывода «Kimi Code» (`Kimi: Показать логи`).
-- **Пуш на GitHub** — два способа:
-  - инструмент `git_push`: агент сам коммитит и пушит, когда задача выполнена (сообщение коммита он составляет сам);
-  - настройка `kimi.autoPush`: после каждой задачи, в которой агент менял файлы, изменения автоматически коммитятся и пушатся. В режиме «Полная автономность» — молча, в остальных — с подтверждением.
-- **Деплой проектов** — два способа:
-  - инструмент `deploy`: агент сам запускает команду деплоя, когда задача выполнена («исправь и задеплой»);
-  - настройка `kimi.autoDeploy`: после каждой задачи с изменениями (и после автопуша, если он включён) автоматически выполняется команда деплоя.
-  - Команда задаётся в `kimi.deployCommand` — подойдёт любая: `npm run build && npm run deploy`, `vercel --prod`, `netlify deploy --prod`, `firebase deploy` и т.д. Таймаут — 10 минут.
-- **Выбор модели** — выпадающий список в панели чата или команда `Kimi: Выбрать модель`. Список подтягивается живой с API (`GET /models`), кнопка ⟳ обновляет его; если API недоступен — показывается встроенный список (kimi-k2, kimi-latest, moonshot-v1 и др.).
+A VS Code extension that embeds [Kimi](https://platform.moonshot.ai) (Moonshot AI) into your editor — an independent, open-source counterpart to the Claude Code extension. Not affiliated with Moonshot AI or Anthropic.
 
-## Установка и запуск
+## 📥 Download & Install
 
-### Вариант 1. Отладка (для разработки)
+**➡️ [Download kimi-code-0.6.0.vsix (latest release)](https://github.com/fo011y/kimi-code-vscode/releases/latest/download/kimi-code-0.6.0.vsix)**
 
-1. Откройте эту папку в VS Code.
-2. `npm install` (уже выполнено, если есть `node_modules`).
-3. Нажмите **F5** — откроется окно Extension Development Host.
-4. В новом окне откройте иконку **Kimi** на панели слева.
+Then install:
 
-### Вариант 2. Установка из VSIX
+```bash
+code --install-extension kimi-code-0.6.0.vsix
+```
+
+Or in VS Code: `Ctrl+Shift+P` → **Extensions: Install from VSIX…** → pick the downloaded file.
+
+## Features
+
+- **Sidebar chat panel** — streaming conversation with Kimi. The selected code is automatically attached as context.
+- **Code actions** — from the editor context menu (select code → right click):
+  - `Kimi: Explain Selection`, `Kimi: Fix Selection`, `Kimi: Refactor Selection`, `Kimi: Generate Tests`
+- **Edit by instruction** — `Kimi: Edit Selection by Instruction`: describe the change, review the diff, confirm.
+- **Agent mode** — the "Agent" checkbox (on by default) gives Kimi tools:
+  - `read_file`, `list_files`, `search_in_files` — project exploration (respects `.gitignore`);
+  - `write_file` — create/modify files with diff preview;
+  - `run_command` — shell commands;
+  - `get_diagnostics` — linter/compiler problems from the VS Code Problems panel.
+- **Permission modes** — dropdown in chat or `Kimi: Select Permission Mode`:
+  - **Plan** — read-only: Kimi explores the project and produces a step-by-step plan;
+  - **Ask** — every file edit and command requires confirmation;
+  - **Auto-edit** — files change silently, commands need confirmation;
+  - **Full auto** — ⚠️ no confirmations at all.
+- **Checkpoints / Review & revert** — a snapshot is taken before the first edit of every file in a session. After an agent task, an "Changes by Kimi" panel appears in chat: click a file for a diff, accept/reject per file or all at once. Also available via `Kimi: Review Session Changes` or `/review`.
+- **Multi-sessions** — conversation tabs above the chat: new (＋), switch, rename (double-click), delete (✕). Sessions persist per project.
+- **Chat in editor tab** — `Kimi: Open Chat in Editor` mirrors the sidebar chat into a full editor panel.
+- **@-mentions** — type `@src/app.ts` in a message to attach a file (up to 4). `Ctrl+Alt+K` inserts a reference to the selected file.
+- **IDE diagnostics** — errors/warnings of the active file are auto-attached to your question.
+- **Slash commands** — `/clear`, `/compact`, `/review`, `/plan`, `/ask`, `/auto`, `/fullauto`, `/help`.
+- **Session history** — conversations survive VS Code restarts (per project).
+- **Token counter** — per-request and per-session usage under the input box.
+- **GitHub push** — `git_push` agent tool and `kimi.autoPush` setting: automatic commit + push after agent tasks.
+- **Project deploy** — `deploy` agent tool and `kimi.autoDeploy` setting with `kimi.deployCommand` (any command: `npm run deploy`, `vercel --prod`, `netlify deploy --prod`…).
+- **Model picker** — dropdown in chat (live list from `GET /models`, ⟳ refreshes) or `Kimi: Select Model`.
+
+## Configuration
+
+1. Get an API key: https://platform.moonshot.ai → **API Key Management**.
+2. In VS Code: `Ctrl+Shift+P` → **Kimi: Set API Key**. The key is stored in VS Code SecretStorage.
+
+### Settings (`Ctrl+,` → "kimi")
+
+| Setting | Default | Description |
+|---|---|---|
+| `kimi.baseUrl` | `https://api.moonshot.ai/v1` | API base URL. For China: `https://api.moonshot.cn/v1` |
+| `kimi.model` | `kimi-k2-0905-preview` | Model (e.g. `kimi-latest`, `moonshot-v1-32k`) |
+| `kimi.temperature` | `0.6` | Sampling temperature |
+| `kimi.maxTokens` | `8192` | Max tokens per response |
+| `kimi.maxAgentSteps` | `25` | Agent step limit per request |
+| `kimi.permissionMode` | `ask` | Autonomy: `plan` / `ask` / `autoEdit` / `fullAuto` |
+| `kimi.autoPush` | `false` | Auto commit & push to GitHub after agent tasks |
+| `kimi.deployCommand` | `""` | Deploy command (shell) |
+| `kimi.autoDeploy` | `false` | Auto deploy after agent tasks (after auto-push) |
+| `kimi.respectGitIgnore` | `true` | Respect `.gitignore` when walking files |
+| `kimi.attachSelection` | `true` | Attach selected code to messages |
+| `kimi.attachOpenFile` | `false` | Attach the whole open file when nothing is selected |
+| `kimi.useCtrlEnterToSend` | `false` | Send with Ctrl+Enter |
+| `kimi.showMessageTimestamps` | `false` | Show message timestamps |
+
+## Security
+
+- The API key is stored only in VS Code SecretStorage.
+- In `ask` mode every file write and command requires confirmation. `fullAuto` disables all confirmations — use only in projects you trust (preferably under git).
+- Agent tools cannot leave the opened project folder.
+- Command timeout: 60 seconds (deploy: 10 minutes).
+
+## Development
 
 ```bash
 npm install
-npm run compile
-npx vsce package
-code --install-extension kimi-code-0.4.0.vsix
+npm run compile   # or: press F5 in VS Code to launch the Extension Development Host
+npx vsce package  # produce the .vsix
 ```
 
-## Настройка
-
-1. Получите API-ключ: https://platform.moonshot.ai → **API Key Management**.
-2. В VS Code: `Ctrl+Shift+P` → **Kimi: Указать API-ключ**. Ключ хранится в защищённом хранилище VS Code (не в настройках, не в файлах).
-
-### Параметры (`Ctrl+,` → «kimi»)
-
-| Параметр | По умолчанию | Описание |
-|---|---|---|
-| `kimi.baseUrl` | `https://api.moonshot.ai/v1` | Базовый URL API. Для Китая: `https://api.moonshot.cn/v1` |
-| `kimi.model` | `kimi-k2-0905-preview` | Модель (например `kimi-latest`, `moonshot-v1-32k`) |
-| `kimi.temperature` | `0.6` | Температура генерации |
-| `kimi.maxTokens` | `8192` | Максимум токенов в ответе |
-| `kimi.maxAgentSteps` | `25` | Лимит шагов агента за один запрос |
-| `kimi.permissionMode` | `ask` | Режим автономности: `ask` / `autoEdit` / `fullAuto` |
-| `kimi.autoPush` | `false` | Автокоммит и пуш на GitHub после задачи агента |
-| `kimi.deployCommand` | `""` | Команда деплоя проекта (shell) |
-| `kimi.autoDeploy` | `false` | Автодеплой после задачи агента (после автопуша) |
-| `kimi.respectGitIgnore` | `true` | Уважать `.gitignore` при обходе файлов |
-| `kimi.attachSelection` | `true` | Прикреплять выделенный код к сообщениям |
-| `kimi.attachOpenFile` | `false` | Прикреплять открытый файл целиком |
-| `kimi.useCtrlEnterToSend` | `false` | Отправка по Ctrl+Enter |
-| `kimi.showMessageTimestamps` | `false` | Метки времени у сообщений |
-
-## Безопасность
-
-- API-ключ хранится только в SecretStorage VS Code.
-- В режиме `ask` запись файлов и запуск команд **всегда** требуют подтверждения. Режим `fullAuto` отключает все подтверждения — используйте его только в проектах, которым доверяете (желательно под git).
-- Инструменты не выходят за пределы открытой папки проекта.
-- Таймаут команд — 60 секунд.
-
-## Структура проекта
+## Project structure
 
 ```
 src/
-  api.ts        — клиент Moonshot API (SSE-стриминг, tool calling)
-  config.ts     — настройки и хранение API-ключа
-  chatPanel.ts  — чат-панель (webview в сайдбаре)
-  agent.ts      — агентный цикл (вызов инструментов)
-  tools.ts      — инструменты: файлы, поиск, команды, diff-подтверждение
-  extension.ts  — точка входа, команды контекстного меню
+  api.ts         — Moonshot API client (SSE streaming, tool calling)
+  config.ts      — settings and API key storage
+  chatPanel.ts   — chat webview (sidebar + editor tab), sessions, review panel
+  agent.ts       — agent loop (tool calling)
+  tools.ts       — tools: files, search, shell, git, deploy, diagnostics
+  checkpoints.ts — file snapshots, diff and revert
+  extension.ts   — entry point, commands, keybindings
 ```
+
+## License
+
+[MIT](LICENSE) © fo011y
