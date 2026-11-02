@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { ApiConfig } from './api';
+import { getOAuthAccessToken, loginInteractive } from './auth';
 
 export type ApiConfigNoKey = Omit<ApiConfig, 'apiKey'>;
 
@@ -92,6 +93,62 @@ export function getUseCtrlEnterToSend(): boolean {
 /** Показывать метки времени у сообщений. */
 export function getShowTimestamps(): boolean {
   return vscode.workspace.getConfiguration('kimi').get<boolean>('showMessageTimestamps', false);
+}
+
+// ---------- единая авторизация: OAuth (сайт) или API-ключ ----------
+
+export interface AuthInfo {
+  token: string;
+  baseUrl: string;
+  kind: 'oauth' | 'apiKey';
+}
+
+/** Авторизация без диалогов: OAuth-токен приоритетнее API-ключа. */
+export async function getAuthQuiet(context: vscode.ExtensionContext): Promise<AuthInfo | undefined> {
+  const oauth = await getOAuthAccessToken(context);
+  if (oauth) return { token: oauth.token, baseUrl: oauth.baseUrl, kind: 'oauth' };
+  const key = await context.secrets.get('kimi.apiKey');
+  if (key) return { token: key, baseUrl: getApiConfig().baseUrl, kind: 'apiKey' };
+  return undefined;
+}
+
+/**
+ * Гарантированно вернуть авторизацию, при необходимости спросив способ входа:
+ * через сайт Kimi (OAuth) или API-ключ.
+ */
+export async function ensureAuth(
+  context: vscode.ExtensionContext,
+  force = false
+): Promise<AuthInfo | undefined> {
+  if (!force) {
+    const quiet = await getAuthQuiet(context);
+    if (quiet) return quiet;
+  }
+  const pick = await vscode.window.showQuickPick(
+    [
+      {
+        label: '$(globe) Войти через сайт Kimi',
+        description: 'рекомендуется',
+        detail: 'Откроется браузер, вход по коду — как в официальном Kimi Code CLI. Нужна подписка Kimi Membership.',
+        authKind: 'oauth' as const,
+      },
+      {
+        label: '$(key) Ввести API-ключ',
+        description: 'platform.moonshot.ai',
+        detail: 'Оплата по токенам через открытую платформу Moonshot.',
+        authKind: 'apiKey' as const,
+      },
+    ],
+    { title: 'Kimi: вход в аккаунт' }
+  );
+  if (!pick) return undefined;
+  if (pick.authKind === 'oauth') {
+    const ok = await loginInteractive(context);
+    if (!ok) return undefined;
+    return getAuthQuiet(context);
+  }
+  const key = await ensureApiKey(context, true);
+  return key ? { token: key, baseUrl: getApiConfig().baseUrl, kind: 'apiKey' } : undefined;
 }
 
 export async function ensureApiKey(

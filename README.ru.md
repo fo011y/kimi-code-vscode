@@ -10,12 +10,12 @@
 
 ## 📥 Скачать и установить
 
-**➡️ [Скачать kimi-code-0.6.0.vsix (последний релиз)](https://github.com/fo011y/kimi-code-vscode/releases/latest/download/kimi-code-0.6.0.vsix)**
+**➡️ [Скачать kimi-code-0.7.0.vsix (последний релиз)](https://github.com/fo011y/kimi-code-vscode/releases/latest/download/kimi-code-0.7.0.vsix)**
 
 Затем установите:
 
 ```bash
-code --install-extension kimi-code-0.6.0.vsix
+code --install-extension kimi-code-0.7.0.vsix
 ```
 
 Или в VS Code: `Ctrl+Shift+P` → **Extensions: Install from VSIX…** → выберите скачанный файл.
@@ -50,8 +50,22 @@ code --install-extension kimi-code-0.6.0.vsix
 
 ## Настройка
 
+Есть два способа входа — расширение само предложит выбрать при первом запросе.
+
+### Вариант 1: вход через сайт Kimi (OAuth, рекомендуется)
+
+1. `Ctrl+Shift+P` → **Kimi: Войти через сайт (OAuth)**.
+2. Выберите регион аккаунта: **Kimi.com** или **Kimi.ai (Global)**.
+3. Откроется страница входа в браузере — подтвердите код, который показывает VS Code.
+4. Готово: токены хранятся в защищённом хранилище VS Code и обновляются автоматически.
+
+Используется тот же Device Code OAuth flow (RFC 8628), что и у официального Kimi Code CLI (`kimi login`). Нужна подписка **Kimi Membership** — биллинг отдельный от API-платформы. Выход: **Kimi: Выйти из аккаунта**.
+
+### Вариант 2: API-ключ
+
 1. Получите API-ключ: https://platform.moonshot.ai → **API Key Management**.
 2. В VS Code: `Ctrl+Shift+P` → **Kimi: Указать API-ключ**. Ключ хранится в защищённом хранилище VS Code.
+3. При этом способе работает настройка `kimi.baseUrl` (в OAuth-режиме endpoint выбирается автоматически по региону).
 
 ### Параметры (`Ctrl+,` → «kimi»)
 
@@ -74,7 +88,7 @@ code --install-extension kimi-code-0.6.0.vsix
 
 ## Безопасность
 
-- API-ключ хранится только в SecretStorage VS Code.
+- API-ключ и OAuth-токены хранятся только в SecretStorage VS Code.
 - В режиме `ask` запись файлов и запуск команд **всегда** требуют подтверждения. Режим `fullAuto` отключает все подтверждения — используйте его только в проектах, которым доверяете (желательно под git).
 - Инструменты не выходят за пределы открытой папки проекта.
 - Таймаут команд — 60 секунд (деплой — 10 минут).
@@ -92,7 +106,8 @@ npx vsce package  # сборка .vsix
 ```
 src/
   api.ts         — клиент Moonshot API (SSE-стриминг, tool calling)
-  config.ts      — настройки и хранение API-ключа
+  config.ts      — настройки и выбор способа авторизации
+  auth.ts        — вход через сайт Kimi (Device Code OAuth, refresh-токены)
   chatPanel.ts   — чат (сайдбар + вкладка редактора), сессии, панель правок
   agent.ts       — агентный цикл (вызов инструментов)
   tools.ts       — инструменты: файлы, поиск, команды, git, деплой, диагностика

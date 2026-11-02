@@ -4,7 +4,8 @@ import { runAgentLoop } from './agent';
 import { CheckpointEntry, CheckpointStore } from './checkpoints';
 import { autoDeployIfEnabled, autoPushIfEnabled, consumeChangesMade, setSnapshotHook } from './tools';
 import {
-  ensureApiKey,
+  ensureAuth,
+  getAuthQuiet,
   getApiConfig,
   getAttachOpenFile,
   getAttachSelection,
@@ -334,9 +335,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   async refreshModels(): Promise<void> {
     let models = FALLBACK_MODELS;
     try {
-      const apiKey = await this.context.secrets.get('kimi.apiKey');
-      if (apiKey) {
-        models = await listModels({ ...getApiConfig(), apiKey });
+      const auth = await getAuthQuiet(this.context);
+      if (auth) {
+        models = await listModels({ ...getApiConfig(), apiKey: auth.token, baseUrl: auth.baseUrl });
       }
     } catch {
       // оставляем встроенный список
@@ -552,9 +553,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       this.post({ type: 'info', text: 'История пуста — сжимать нечего.' });
       return;
     }
-    const apiKey = await ensureApiKey(this.context);
-    if (!apiKey) return;
-    const cfg: ApiConfig = { ...getApiConfig(), apiKey };
+    const auth = await ensureAuth(this.context);
+    if (!auth) return;
+    const cfg: ApiConfig = { ...getApiConfig(), apiKey: auth.token, baseUrl: auth.baseUrl };
     this.post({ type: 'info', text: '🗜 Сжимаю историю диалога…' });
     try {
       const transcript = hist
@@ -598,12 +599,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     this.post({ type: 'start' });
 
     try {
-      const apiKey = await ensureApiKey(this.context);
-      if (!apiKey) {
-        this.post({ type: 'error', text: 'Не задан API-ключ. Выполните команду «Kimi: Указать API-ключ».' });
+      const auth = await ensureAuth(this.context);
+      if (!auth) {
+        this.post({ type: 'error', text: 'Вы не вошли в аккаунт. Выполните команду «Kimi: Войти через сайт» или «Kimi: Указать API-ключ».' });
         return;
       }
-      const cfg: ApiConfig = { ...getApiConfig(), apiKey };
+      const cfg: ApiConfig = { ...getApiConfig(), apiKey: auth.token, baseUrl: auth.baseUrl };
 
       const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
       const plan = isPlanMode();

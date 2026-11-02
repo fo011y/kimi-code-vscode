@@ -10,12 +10,12 @@ A VS Code extension that embeds [Kimi](https://platform.moonshot.ai) (Moonshot A
 
 ## 📥 Download & Install
 
-**➡️ [Download kimi-code-0.6.0.vsix (latest release)](https://github.com/fo011y/kimi-code-vscode/releases/latest/download/kimi-code-0.6.0.vsix)**
+**➡️ [Download kimi-code-0.7.0.vsix (latest release)](https://github.com/fo011y/kimi-code-vscode/releases/latest/download/kimi-code-0.7.0.vsix)**
 
 Then install:
 
 ```bash
-code --install-extension kimi-code-0.6.0.vsix
+code --install-extension kimi-code-0.7.0.vsix
 ```
 
 Or in VS Code: `Ctrl+Shift+P` → **Extensions: Install from VSIX…** → pick the downloaded file.
@@ -50,8 +50,22 @@ Or in VS Code: `Ctrl+Shift+P` → **Extensions: Install from VSIX…** → pick 
 
 ## Configuration
 
+Two sign-in methods — the extension asks you to pick one on the first request.
+
+### Option 1: Sign in via the Kimi website (OAuth, recommended)
+
+1. `Ctrl+Shift+P` → **Kimi: Sign in via website (OAuth)**.
+2. Pick your account region: **Kimi.com** or **Kimi.ai (Global)**.
+3. A login page opens in your browser — confirm the code shown by VS Code.
+4. Done: tokens live in VS Code SecretStorage and refresh automatically.
+
+This uses the same Device Code OAuth flow (RFC 8628) as the official Kimi Code CLI (`kimi login`). A **Kimi Membership** subscription is required — it is billed separately from the API platform. Sign out with **Kimi: Sign out**.
+
+### Option 2: API key
+
 1. Get an API key: https://platform.moonshot.ai → **API Key Management**.
 2. In VS Code: `Ctrl+Shift+P` → **Kimi: Set API Key**. The key is stored in VS Code SecretStorage.
+3. The `kimi.baseUrl` setting only applies to this method (in OAuth mode the endpoint follows the chosen region automatically).
 
 ### Settings (`Ctrl+,` → "kimi")
 
@@ -74,7 +88,7 @@ Or in VS Code: `Ctrl+Shift+P` → **Extensions: Install from VSIX…** → pick 
 
 ## Security
 
-- The API key is stored only in VS Code SecretStorage.
+- The API key and OAuth tokens are stored only in VS Code SecretStorage.
 - In `ask` mode every file write and command requires confirmation. `fullAuto` disables all confirmations — use only in projects you trust (preferably under git).
 - Agent tools cannot leave the opened project folder.
 - Command timeout: 60 seconds (deploy: 10 minutes).
@@ -92,7 +106,8 @@ npx vsce package  # produce the .vsix
 ```
 src/
   api.ts         — Moonshot API client (SSE streaming, tool calling)
-  config.ts      — settings and API key storage
+  config.ts      — settings and auth method selection
+  auth.ts        — Kimi website sign-in (Device Code OAuth, refresh tokens)
   chatPanel.ts   — chat webview (sidebar + editor tab), sessions, review panel
   agent.ts       — agent loop (tool calling)
   tools.ts       — tools: files, search, shell, git, deploy, diagnostics

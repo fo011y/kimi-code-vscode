@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { ChatViewProvider } from './chatPanel';
 import {
   ensureApiKey,
+  ensureAuth,
   getApiConfig,
   getModel,
   getPermissionMode,
@@ -39,9 +40,9 @@ async function editSelection(context: vscode.ExtensionContext): Promise<void> {
   });
   if (!instruction) return;
 
-  const apiKey = await ensureApiKey(context);
-  if (!apiKey) return;
-  const cfg: ApiConfig = { ...getApiConfig(), apiKey };
+  const auth = await ensureAuth(context);
+  if (!auth) return;
+  const cfg: ApiConfig = { ...getApiConfig(), apiKey: auth.token, baseUrl: auth.baseUrl };
 
   await vscode.window.withProgress(
     { location: vscode.ProgressLocation.Notification, title: 'Kimi редактирует код…' },
@@ -112,6 +113,35 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.window.showInformationMessage('API-ключ Kimi сохранён.');
   });
 
+  cmd('kimi.login', async () => {
+    const { loginInteractive } = await import('./auth');
+    const ok = await loginInteractive(context);
+    if (ok) provider.postSettings();
+  });
+
+  cmd('kimi.logout', async () => {
+    const { hasOAuthLogin, logoutOAuth } = await import('./auth');
+    const hadOAuth = await hasOAuthLogin(context);
+    const hadKey = (await context.secrets.get('kimi.apiKey')) !== undefined;
+    if (!hadOAuth && !hadKey) {
+      vscode.window.showInformationMessage('Kimi: вы не вошли в аккаунт.');
+      return;
+    }
+    const what = await vscode.window.showQuickPick(
+      [
+        ...(hadOAuth ? [{ label: '$(globe) Выйти из аккаунта Kimi (OAuth)', target: 'oauth' as const }] : []),
+        ...(hadKey ? [{ label: '$(key) Удалить API-ключ', target: 'apiKey' as const }] : []),
+        { label: '$(trash) Выйти везде', target: 'all' as const },
+      ],
+      { title: 'Kimi: выход' }
+    );
+    if (!what) return;
+    if (what.target === 'oauth' || what.target === 'all') await logoutOAuth(context);
+    if (what.target === 'apiKey' || what.target === 'all') await context.secrets.delete('kimi.apiKey');
+    vscode.window.showInformationMessage('Kimi: вы вышли из аккаунта.');
+    provider.postSettings();
+  });
+
   cmd('kimi.newChat', () => provider.newChat());
 
   cmd('kimi.setMode', async () => {
@@ -137,10 +167,10 @@ export function activate(context: vscode.ExtensionContext): void {
 
   cmd('kimi.setModel', async () => {
     let models = FALLBACK_MODELS;
-    const apiKey = await ensureApiKey(context);
-    if (apiKey) {
+    const auth = await ensureAuth(context);
+    if (auth) {
       try {
-        models = await listModels({ ...getApiConfig(), apiKey });
+        models = await listModels({ ...getApiConfig(), apiKey: auth.token, baseUrl: auth.baseUrl });
       } catch {
         // офлайн — используем встроенный список
       }
