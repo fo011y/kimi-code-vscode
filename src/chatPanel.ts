@@ -6,15 +6,20 @@ import { autoDeployIfEnabled, autoPushIfEnabled, consumeChangesMade, setSnapshot
 import {
   ensureApiKey,
   getApiConfig,
+  getAttachOpenFile,
+  getAttachSelection,
   getModel,
   getPermissionMode,
+  getShowTimestamps,
+  getUseCtrlEnterToSend,
   isPlanMode,
   setModel,
   setPermissionMode,
   PermissionMode,
 } from './config';
 
-const HISTORY_KEY = 'kimi.chatHistory';
+const SESSIONS_KEY = 'kimi.sessions';
+const ACTIVE_KEY = 'kimi.activeSession';
 
 const HELP_TEXT = [
   '/clear — новый диалог (сброс контекста)',
@@ -23,6 +28,13 @@ const HELP_TEXT = [
   '/plan, /ask, /auto, /fullauto — переключить режим автономности',
   '@путь/к/файлу — прикрепить файл к вопросу',
 ].join('\n');
+
+interface Session {
+  id: string;
+  title: string;
+  history: ChatMessage[];
+  updatedAt: number;
+}
 
 function systemPrompt(workspaceRoot: string | undefined, plan: boolean): string {
   const lines = [
@@ -50,51 +62,266 @@ function systemPrompt(workspaceRoot: string | undefined, plan: boolean): string 
 export class ChatViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewId = 'kimi.chatView';
 
-  private view?: vscode.WebviewView;
+  private webviews = new Set<vscode.Webview>();
   private pending: Array<{ text: string; agent: boolean }> = [];
-  private history: ChatMessage[] = [];
+  private sessions: Session[] = [];
+  private activeId = '';
+  private checkpointStores = new Map<string, CheckpointStore>();
   private abort?: AbortController;
   private busy = false;
-  private checkpoints: CheckpointStore;
   private sessionTokens = 0;
 
-  constructor(private readonly context: vscode.ExtensionContext) {
-    this.history = context.workspaceState.get<ChatMessage[]>(HISTORY_KEY, []);
-    this.checkpoints = new CheckpointStore(context.globalStorageUri.fsPath, String(Date.now()));
+  constructor(
+    private readonly context: vscode.ExtensionContext,
+    private readonly log: vscode.OutputChannel
+  ) {
+    this.sessions = context.workspaceState.get<Session[]>(SESSIONS_KEY, []);
+    if (this.sessions.length === 0) {
+      this.sessions.push({ id: String(Date.now()), title: 'Новый диалог', history: [], updatedAt: Date.now() });
+    }
+    const savedActive = context.workspaceState.get<string>(ACTIVE_KEY, '');
+    this.activeId = this.sessions.some((s) => s.id === savedActive) ? savedActive : this.sessions[0].id;
+
     setSnapshotHook((abs) => {
       const r = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
       if (!r) return;
       try {
-        this.checkpoints.snapshot(abs, r);
+        this.checkpointsFor().snapshot(abs, r);
       } catch {
         // снимок не критичен
       }
     });
   }
 
-  resolveWebviewView(view: vscode.WebviewView): void {
-    this.view = view;
-    view.webview.options = { enableScripts: true };
-    view.webview.html = getHtml(view.webview);
-    view.webview.onDidReceiveMessage((m) => {
-      if (m?.type === 'ask') void this.handleAsk(String(m.text ?? ''), !!m.agent);
-      else if (m?.type === 'cancel') this.abort?.abort();
-      else if (m?.type === 'newChat') this.newChat();
-      else if (m?.type === 'setMode') void this.applyMode(m.mode);
-      else if (m?.type === 'setModel') void this.applyModel(String(m.model ?? ''));
-      else if (m?.type === 'refreshModels') void this.refreshModels();
-    });
-    this.post({ type: 'mode', mode: getPermissionMode() });
-    if (this.history.length > 0) {
-      this.post({
-        type: 'history',
-        items: this.history.map((h) => ({ role: h.role, content: h.content ?? '' })),
-      });
+  // ---------- сессии ----------
+
+  private active(): Session {
+    return this.sessions.find((s) => s.id === this.activeId) ?? this.sessions[0];
+  }
+
+  private checkpointsFor(): CheckpointStore {
+    let st = this.checkpointStores.get(this.activeId);
+    if (!st) {
+      st = new CheckpointStore(this.context.globalStorageUri.fsPath, this.activeId);
+      this.checkpointStores.set(this.activeId, st);
     }
-    void this.refreshModels();
+    return st;
+  }
+
+  private saveSessions(): void {
+    this.active().updatedAt = Date.now();
+    void this.context.workspaceState.update(
+      SESSIONS_KEY,
+      this.sessions.map((s) => ({ ...s, history: s.history.slice(-20) }))
+    );
+    void this.context.workspaceState.update(ACTIVE_KEY, this.activeId);
+  }
+
+  private postSessions(): void {
+    this.post({
+      type: 'sessions',
+      items: this.sessions.map((s) => ({ id: s.id, title: s.title, active: s.id === this.activeId })),
+    });
+  }
+
+  private postHistory(): void {
+    this.post({
+      type: 'history',
+      items: this.active().history.map((h) => ({ role: h.role, content: h.content ?? '' })),
+    });
+  }
+
+  private createSession(): void {
+    const s: Session = { id: String(Date.now()), title: 'Новый диалог', history: [], updatedAt: Date.now() };
+    this.sessions.push(s);
+    this.activeId = s.id;
+    this.saveSessions();
+    this.post({ type: 'clear' });
+    this.postSessions();
+  }
+
+  private switchSession(id: string): void {
+    if (id === this.activeId || !this.sessions.some((s) => s.id === id)) return;
+    this.activeId = id;
+    this.saveSessions();
+    this.post({ type: 'clear' });
+    this.postHistory();
+    this.postSessions();
+  }
+
+  private deleteSession(id: string): void {
+    const idx = this.sessions.findIndex((s) => s.id === id);
+    if (idx < 0) return;
+    this.sessions.splice(idx, 1);
+    this.checkpointStores.delete(id);
+    if (this.sessions.length === 0) {
+      this.createSession();
+      return;
+    }
+    if (this.activeId === id) {
+      this.activeId = this.sessions[Math.max(0, idx - 1)].id;
+      this.post({ type: 'clear' });
+      this.postHistory();
+    }
+    this.saveSessions();
+    this.postSessions();
+  }
+
+  private renameSession(id: string, title: string): void {
+    const s = this.sessions.find((x) => x.id === id);
+    if (!s || !title.trim()) return;
+    s.title = title.trim().slice(0, 60);
+    this.saveSessions();
+    this.postSessions();
+  }
+
+  newChat(): void {
+    this.createSession();
+  }
+
+  // ---------- веб-панели ----------
+
+  resolveWebviewView(view: vscode.WebviewView): void {
+    this.attachWebview(view.webview);
+    view.onDidDispose(() => this.webviews.delete(view.webview));
     const queued = this.pending.splice(0);
     for (const item of queued) void this.handleAsk(item.text, item.agent);
   }
+
+  /** Открыть чат во вкладке редактора (та же сессия, зеркало сайдбара). */
+  openInEditor(): void {
+    const panel = vscode.window.createWebviewPanel(
+      'kimi.chatPanel',
+      'Kimi Чат',
+      vscode.ViewColumn.Active,
+      { enableScripts: true, retainContextWhenHidden: true }
+    );
+    this.attachWebview(panel.webview);
+    panel.onDidDispose(() => this.webviews.delete(panel.webview));
+  }
+
+  private attachWebview(webview: vscode.Webview): void {
+    this.webviews.add(webview);
+    webview.options = { enableScripts: true };
+    webview.html = getHtml(webview);
+    webview.onDidReceiveMessage((m) => void this.onMessage(m));
+    this.initWebview(webview);
+  }
+
+  private initWebview(webview: vscode.Webview): void {
+    const send = (m: unknown) => void webview.postMessage(m);
+    send({ type: 'mode', mode: getPermissionMode() });
+    send({
+      type: 'settings',
+      ctrlEnter: getUseCtrlEnterToSend(),
+      timestamps: getShowTimestamps(),
+    });
+    send({
+      type: 'sessions',
+      items: this.sessions.map((s) => ({ id: s.id, title: s.title, active: s.id === this.activeId })),
+    });
+    if (this.active().history.length > 0) {
+      send({
+        type: 'history',
+        items: this.active().history.map((h) => ({ role: h.role, content: h.content ?? '' })),
+      });
+    }
+    void this.refreshModels();
+  }
+
+  /** Переслать флаги настроек во все веб-панели (при изменении конфигурации). */
+  postSettings(): void {
+    this.post({
+      type: 'settings',
+      ctrlEnter: getUseCtrlEnterToSend(),
+      timestamps: getShowTimestamps(),
+    });
+  }
+
+  private async onMessage(m: any): Promise<void> {
+    const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    switch (m?.type) {
+      case 'ask':
+        await this.handleAsk(String(m.text ?? ''), !!m.agent);
+        break;
+      case 'cancel':
+        this.abort?.abort();
+        break;
+      case 'newChat':
+        this.newChat();
+        break;
+      case 'setMode':
+        await this.applyMode(m.mode);
+        break;
+      case 'setModel':
+        await this.applyModel(String(m.model ?? ''));
+        break;
+      case 'refreshModels':
+        await this.refreshModels();
+        break;
+      case 'newSession':
+        this.createSession();
+        break;
+      case 'switchSession':
+        this.switchSession(String(m.id));
+        break;
+      case 'deleteSession':
+        this.deleteSession(String(m.id));
+        break;
+      case 'renameSession':
+        this.renameSession(String(m.id), String(m.title ?? ''));
+        break;
+      case 'diffFile':
+        if (root) {
+          const e = this.checkpointsFor().find(String(m.file));
+          if (e) await this.checkpointsFor().showDiff(e, root);
+        }
+        break;
+      case 'acceptFile':
+        this.discardFile(String(m.file));
+        break;
+      case 'rejectFile':
+        await this.revertFile(String(m.file));
+        break;
+      case 'acceptAll':
+        this.checkpointsFor().discardAll();
+        this.postReviewUpdate();
+        break;
+      case 'rejectAll':
+        if (root) {
+          await this.checkpointsFor().revertAll(root);
+          this.postReviewUpdate();
+        }
+        break;
+    }
+  }
+
+  private discardFile(rel: string): void {
+    const e = this.checkpointsFor().find(rel);
+    if (e) {
+      this.checkpointsFor().discard(e);
+      this.postReviewUpdate();
+    }
+  }
+
+  private async revertFile(rel: string): Promise<void> {
+    const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const e = this.checkpointsFor().find(rel);
+    if (root && e) {
+      await this.checkpointsFor().revert(e, root);
+      this.log.appendLine(`[review] откачен файл: ${rel}`);
+      this.postReviewUpdate();
+    }
+  }
+
+  private postReviewUpdate(): void {
+    this.post({
+      type: 'reviewUpdate',
+      files: this.checkpointsFor().list().map((e) => ({ file: e.file, created: !e.existed })),
+    });
+  }
+
+  // ---------- модель и режим ----------
 
   /** Переключение модели из чата или команды. */
   async applyModel(model: string): Promise<void> {
@@ -131,17 +358,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  newChat(): void {
-    this.history = [];
-    this.saveHistory();
-    // новая сессия — новые снимки
-    this.checkpoints = new CheckpointStore(this.context.globalStorageUri.fsPath, String(Date.now()));
-    this.view?.webview.postMessage({ type: 'clear' });
-  }
-
   /** Вызов из команды (контекстное меню редактора и т.п.). */
   async askFromCommand(text: string, agent = false): Promise<void> {
-    if (!this.view) {
+    if (this.webviews.size === 0) {
       this.pending.push({ text, agent });
       await vscode.commands.executeCommand(`${ChatViewProvider.viewId}.focus`);
       return;
@@ -157,20 +376,21 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       return;
     }
     const rel = vscode.workspace.asRelativePath(ed.document.uri);
-    if (!this.view) {
+    if (this.webviews.size === 0) {
       await vscode.commands.executeCommand(`${ChatViewProvider.viewId}.focus`);
     }
     this.post({ type: 'insertText', text: `@${rel} ` });
   }
 
-  /** Review-панель: все изменённые за сессию файлы с diff и откатом. */
+  /** Review-панель (QuickPick): все изменённые за сессию файлы с diff и откатом. */
   async reviewChanges(): Promise<void> {
     const rootDir = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!rootDir) {
       vscode.window.showWarningMessage('Откройте папку проекта.');
       return;
     }
-    const entries = this.checkpoints.list();
+    const cp = this.checkpointsFor();
+    const entries = cp.list();
     if (entries.length === 0) {
       vscode.window.showInformationMessage('За эту сессию Kimi ещё не менял файлы.');
       return;
@@ -201,34 +421,34 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         'Откатить всё'
       );
       if (ok === 'Откатить всё') {
-        const n = await this.checkpoints.revertAll(rootDir);
+        const n = await cp.revertAll(rootDir);
         vscode.window.showInformationMessage(`Kimi: откачено файлов: ${n}.`);
+        this.postReviewUpdate();
       }
       return;
     }
 
     const entry = pick.entry;
-    await this.checkpoints.showDiff(entry, rootDir);
+    await cp.showDiff(entry, rootDir);
     const action = await vscode.window.showInformationMessage(
       `Откатить «${entry.file}» к состоянию до правок Kimi?`,
       { modal: true },
       'Откатить'
     );
     if (action === 'Откатить') {
-      await this.checkpoints.revert(entry, rootDir);
+      await cp.revert(entry, rootDir);
       vscode.window.showInformationMessage(`Kimi: файл откачен: ${entry.file}`);
+      this.postReviewUpdate();
     }
   }
 
   private post(m: unknown): void {
-    void this.view?.webview.postMessage(m);
+    for (const w of this.webviews) void w.postMessage(m);
   }
 
-  private saveHistory(): void {
-    void this.context.workspaceState.update(HISTORY_KEY, this.history.slice(-20));
-  }
+  // ---------- контекст ----------
 
-  /** Сборка полного контекста вопроса: @файлы, выделение, диагностика IDE. */
+  /** Сборка полного контекста вопроса: @файлы, выделение, открытый файл, диагностика IDE. */
   private async buildUserContent(userText: string): Promise<string> {
     let full = userText;
 
@@ -253,14 +473,23 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       }
     }
 
-    // выделенный код
     const ed = vscode.window.activeTextEditor;
-    if (ed && !ed.selection.isEmpty) {
+
+    // выделенный код
+    let selectionAttached = false;
+    if (ed && getAttachSelection() && !ed.selection.isEmpty) {
       const sel = ed.document.getText(ed.selection);
       if (sel.trim()) {
         const rel = vscode.workspace.asRelativePath(ed.document.uri);
         full += `\n\nВыделенный код из \`${rel}\`:\n\`\`\`${ed.document.languageId}\n${sel.slice(0, 8000)}\n\`\`\``;
+        selectionAttached = true;
       }
+    }
+
+    // открытый файл целиком (если включено и выделения нет)
+    if (ed && getAttachOpenFile() && !selectionAttached) {
+      const rel = vscode.workspace.asRelativePath(ed.document.uri);
+      full += `\n\nОткрытый файл \`${rel}\`:\n\`\`\`${ed.document.languageId}\n${ed.document.getText().slice(0, 8000)}\n\`\`\``;
     }
 
     // диагностика активного файла (ошибки/предупреждения линтера)
@@ -282,7 +511,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     return full;
   }
 
-  /** Обработка слэш-команд. Возвращает true, если текст был командой. */
+  // ---------- слэш-команды ----------
+
   private async handleSlash(text: string): Promise<boolean> {
     const cmd = text.split(/\s/)[0].toLowerCase();
     switch (cmd) {
@@ -317,7 +547,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
   /** /compact: сжать историю диалога в сводку через модель. */
   private async compactHistory(): Promise<void> {
-    if (this.history.length === 0) {
+    const hist = this.active().history;
+    if (hist.length === 0) {
       this.post({ type: 'info', text: 'История пуста — сжимать нечего.' });
       return;
     }
@@ -326,7 +557,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     const cfg: ApiConfig = { ...getApiConfig(), apiKey };
     this.post({ type: 'info', text: '🗜 Сжимаю историю диалога…' });
     try {
-      const transcript = this.history
+      const transcript = hist
         .map((m) => `${m.role}: ${m.content ?? ''}`)
         .join('\n\n')
         .slice(0, 24000);
@@ -338,11 +569,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         },
         { role: 'user', content: transcript },
       ]);
-      this.history = [
+      this.active().history = [
         { role: 'user', content: `Сводка предыдущего диалога:\n${res.content}` },
         { role: 'assistant', content: 'Принято. Продолжаем с учётом этой сводки.' },
       ];
-      this.saveHistory();
+      this.saveSessions();
       this.post({
         type: 'info',
         text: `🗜 История сжата в сводку (${res.usage?.total_tokens ?? '?'} токенов).`,
@@ -351,6 +582,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       this.post({ type: 'error', text: e instanceof Error ? e.message : String(e) });
     }
   }
+
+  // ---------- основной цикл ----------
 
   private async handleAsk(userText: string, agent: boolean): Promise<void> {
     const trimmed = userText.trim();
@@ -377,7 +610,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       const userContent = await this.buildUserContent(userText);
       const messages: ChatMessage[] = [
         { role: 'system', content: systemPrompt(root, plan) },
-        ...this.history.slice(-20),
+        ...this.active().history.slice(-20),
         { role: 'user', content: userContent },
       ];
 
@@ -398,7 +631,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         await runAgentLoop(cfg, messages, {
           onToken,
           onUsage,
-          onTool: (name, status, detail) => this.post({ type: 'tool', name, status, detail }),
+          onTool: (name, status, detail) => {
+            this.log.appendLine(`[tool] ${name} → ${status}${detail ? `: ${detail}` : ''}`);
+            this.post({ type: 'tool', name, status, detail });
+          },
           signal: this.abort.signal,
         });
 
@@ -423,21 +659,31 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             });
           }
         }
+
+        // панель принятия правок: файлы, изменённые агентом за сессию
+        if (changed) this.postReviewUpdate();
       } else {
         const res = await streamChat(cfg, messages, { onToken, signal: this.abort.signal });
         if (res.usage) onUsage(res.usage);
       }
 
-      this.history.push(
+      // авто-название сессии по первому сообщению
+      if (this.active().title === 'Новый диалог') {
+        this.active().title = userText.replace(/\s+/g, ' ').slice(0, 30);
+        this.postSessions();
+      }
+
+      this.active().history.push(
         { role: 'user', content: userContent },
         { role: 'assistant', content: acc }
       );
-      this.saveHistory();
+      this.saveSessions();
       this.post({ type: 'done' });
     } catch (e: any) {
       if (e?.name === 'AbortError') {
         this.post({ type: 'done', aborted: true });
       } else {
+        this.log.appendLine(`[error] ${e?.message ?? String(e)}`);
         this.post({ type: 'error', text: e?.message ?? String(e) });
       }
     } finally {
@@ -479,6 +725,23 @@ function getHtml(webview: vscode.Webview): string {
     background: var(--vscode-sideBar-background);
     display: flex; flex-direction: column; height: 100vh;
   }
+  #tabs {
+    display: flex; flex-wrap: wrap; gap: 2px; padding: 4px 6px 0 6px;
+    border-bottom: 1px solid var(--vscode-panel-border);
+  }
+  .tab {
+    font-size: 0.8em; padding: 3px 8px; cursor: pointer; opacity: 0.7;
+    border-radius: 4px 4px 0 0; max-width: 140px; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap; user-select: none;
+  }
+  .tab:hover { opacity: 1; background: var(--vscode-list-hoverBackground); }
+  .tab.active {
+    opacity: 1; background: var(--vscode-input-background);
+    border-bottom: 2px solid var(--vscode-textLink-foreground);
+  }
+  .tab .x { margin-left: 6px; opacity: 0.5; }
+  .tab .x:hover { opacity: 1; color: var(--vscode-errorForeground); }
+  .tab.plus { font-weight: bold; }
   #messages { flex: 1; overflow-y: auto; padding: 10px; }
   .msg { margin-bottom: 12px; padding: 8px 10px; border-radius: 6px; line-height: 1.45; word-wrap: break-word; }
   .msg.user {
@@ -499,12 +762,27 @@ function getHtml(webview: vscode.Webview): string {
     font-size: var(--vscode-editor-font-size);
   }
   .msg code { font-family: var(--vscode-editor-font-family); }
+  .ts { font-size: 0.7em; opacity: 0.5; display: block; margin-bottom: 2px; }
   .tool {
     font-size: 0.85em; opacity: 0.85; margin: 4px 0 4px 8px;
     padding: 3px 8px; border-left: 2px solid var(--vscode-textLink-foreground);
     white-space: pre-wrap;
   }
   .tool.error { border-left-color: var(--vscode-errorForeground); }
+  .review {
+    margin: 8px 0; padding: 8px; border-radius: 6px;
+    border: 1px solid var(--vscode-textLink-foreground);
+    background: var(--vscode-input-background);
+  }
+  .rhead { font-weight: bold; margin-bottom: 6px; }
+  .rrow { display: flex; align-items: center; gap: 6px; margin: 4px 0; }
+  .rfile {
+    flex: 1; font-size: 0.85em; cursor: pointer; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap;
+    font-family: var(--vscode-editor-font-family);
+  }
+  .rfile:hover { color: var(--vscode-textLink-foreground); text-decoration: underline; }
+  .rrow button { padding: 2px 8px; font-size: 0.85em; }
   #inputArea {
     border-top: 1px solid var(--vscode-panel-border);
     padding: 8px;
@@ -543,6 +821,7 @@ function getHtml(webview: vscode.Webview): string {
 </style>
 </head>
 <body>
+  <div id="tabs"></div>
   <div id="messages"></div>
   <div id="inputArea">
     <textarea id="input" placeholder="Спросите Kimi… (Enter — отправить, @файл — прикрепить, /help — команды)"></textarea>
@@ -554,7 +833,7 @@ function getHtml(webview: vscode.Webview): string {
         <option value="autoEdit">Авто-правки</option>
         <option value="fullAuto">Полная автономность</option>
       </select>
-      <button id="newChat" class="secondary" title="Очистить диалог">Новый чат</button>
+      <button id="newChat" class="secondary" title="Новая сессия">Новый чат</button>
       <span class="spacer"></span>
       <button id="send">Отправить</button>
     </div>
@@ -570,6 +849,7 @@ function getHtml(webview: vscode.Webview): string {
 (function () {
   var vscode = acquireVsCodeApi();
   var messagesEl = document.getElementById('messages');
+  var tabsEl = document.getElementById('tabs');
   var inputEl = document.getElementById('input');
   var agentEl = document.getElementById('agent');
   var sendBtn = document.getElementById('send');
@@ -579,6 +859,8 @@ function getHtml(webview: vscode.Webview): string {
   var refreshModelsBtn = document.getElementById('refreshModels');
   var hintEl = document.getElementById('hint');
   var usageEl = document.getElementById('usage');
+
+  var settings = { ctrlEnter: false, timestamps: false };
 
   var HINTS = {
     plan: '📋 Планирование: Kimi только читает проект и составляет план — ничего не меняет.',
@@ -619,12 +901,13 @@ function getHtml(webview: vscode.Webview): string {
   }
 
   function fmtTokens(n) {
-    return n >= 1000 ? (n / 1000).toFixed(1).replace('.', ' ') + 'k' : String(n);
+    return n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n);
   }
 
   var busy = false;
   var currentEl = null;
   var currentText = '';
+  var reviewEl = null;
 
   function esc(s) {
     return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -653,14 +936,27 @@ function getHtml(webview: vscode.Webview): string {
     messagesEl.scrollTop = messagesEl.scrollHeight;
   }
 
+  function tsSpan() {
+    if (!settings.timestamps) return null;
+    var d = new Date();
+    var s = document.createElement('span');
+    s.className = 'ts';
+    s.textContent = ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
+    return s;
+  }
+
   function addMsg(cls, text) {
     var div = document.createElement('div');
     div.className = 'msg ' + cls;
-    if (cls === 'assistant') div.innerHTML = md(text);
-    else div.textContent = text;
+    var ts = tsSpan();
+    if (ts) div.appendChild(ts);
+    var body = document.createElement('div');
+    if (cls === 'assistant') body.innerHTML = md(text);
+    else body.textContent = text;
+    div.appendChild(body);
     messagesEl.appendChild(div);
     scrollDown();
-    return div;
+    return body;
   }
 
   function addTool(name, status, detail) {
@@ -678,6 +974,97 @@ function getHtml(webview: vscode.Webview): string {
     div.textContent = 'ℹ️ ' + text;
     messagesEl.appendChild(div);
     scrollDown();
+  }
+
+  // ---------- панель принятия правок ----------
+
+  function renderReview(files) {
+    if (reviewEl) { reviewEl.remove(); reviewEl = null; }
+    if (!files || !files.length) return;
+    var div = document.createElement('div');
+    div.className = 'review';
+    var head = document.createElement('div');
+    head.className = 'rhead';
+    head.textContent = '📝 Изменения Kimi (' + files.length + ')';
+    div.appendChild(head);
+    files.forEach(function (f) {
+      var row = document.createElement('div');
+      row.className = 'rrow';
+      var name = document.createElement('span');
+      name.className = 'rfile';
+      name.textContent = (f.created ? '＋ ' : '✎ ') + f.file;
+      name.title = 'Показать diff';
+      name.addEventListener('click', function () {
+        vscode.postMessage({ type: 'diffFile', file: f.file });
+      });
+      row.appendChild(name);
+      var ok = document.createElement('button');
+      ok.textContent = '✓'; ok.title = 'Принять изменения в этом файле';
+      ok.addEventListener('click', function () {
+        vscode.postMessage({ type: 'acceptFile', file: f.file });
+      });
+      var no = document.createElement('button');
+      no.textContent = '✗'; no.title = 'Откатить этот файл'; no.className = 'secondary';
+      no.addEventListener('click', function () {
+        vscode.postMessage({ type: 'rejectFile', file: f.file });
+      });
+      row.appendChild(ok); row.appendChild(no);
+      div.appendChild(row);
+    });
+    var foot = document.createElement('div');
+    foot.className = 'rrow';
+    var okAll = document.createElement('button');
+    okAll.textContent = 'Принять все';
+    okAll.addEventListener('click', function () {
+      vscode.postMessage({ type: 'acceptAll' });
+    });
+    var noAll = document.createElement('button');
+    noAll.textContent = 'Откатить все'; noAll.className = 'secondary';
+    noAll.addEventListener('click', function () {
+      vscode.postMessage({ type: 'rejectAll' });
+    });
+    foot.appendChild(okAll); foot.appendChild(noAll);
+    div.appendChild(foot);
+    messagesEl.appendChild(div);
+    reviewEl = div;
+    scrollDown();
+  }
+
+  // ---------- вкладки сессий ----------
+
+  function renderSessions(items) {
+    tabsEl.innerHTML = '';
+    (items || []).forEach(function (s) {
+      var tab = document.createElement('span');
+      tab.className = 'tab' + (s.active ? ' active' : '');
+      tab.textContent = s.title;
+      tab.title = s.title + ' (двойной клик — переименовать)';
+      tab.addEventListener('click', function () {
+        vscode.postMessage({ type: 'switchSession', id: s.id });
+      });
+      tab.addEventListener('dblclick', function () {
+        var t = prompt('Название сессии:', s.title);
+        if (t) vscode.postMessage({ type: 'renameSession', id: s.id, title: t });
+      });
+      var x = document.createElement('span');
+      x.className = 'x';
+      x.textContent = '✕';
+      x.title = 'Удалить сессию';
+      x.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        vscode.postMessage({ type: 'deleteSession', id: s.id });
+      });
+      tab.appendChild(x);
+      tabsEl.appendChild(tab);
+    });
+    var plus = document.createElement('span');
+    plus.className = 'tab plus';
+    plus.textContent = '＋';
+    plus.title = 'Новая сессия';
+    plus.addEventListener('click', function () {
+      vscode.postMessage({ type: 'newSession' });
+    });
+    tabsEl.appendChild(plus);
   }
 
   function setBusy(b) {
@@ -703,7 +1090,10 @@ function getHtml(webview: vscode.Webview): string {
     vscode.postMessage({ type: 'newChat' });
   });
   inputEl.addEventListener('keydown', function (e) {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key !== 'Enter') return;
+    if (settings.ctrlEnter) {
+      if (e.ctrlKey || e.metaKey) { e.preventDefault(); send(); }
+    } else if (!e.shiftKey) {
       e.preventDefault();
       send();
     }
@@ -741,11 +1131,23 @@ function getHtml(webview: vscode.Webview): string {
         break;
       case 'history':
         messagesEl.innerHTML = '';
+        reviewEl = null;
         for (var i = 0; i < (m.items || []).length; i++) {
           var it = m.items[i];
           if (it.role === 'user') addMsg('user', it.content.split('\\n')[0].slice(0, 300));
           else if (it.role === 'assistant') addMsg('assistant', it.content);
         }
+        break;
+      case 'sessions':
+        renderSessions(m.items);
+        break;
+      case 'settings':
+        settings.ctrlEnter = !!m.ctrlEnter;
+        settings.timestamps = !!m.timestamps;
+        break;
+      case 'review':
+      case 'reviewUpdate':
+        renderReview(m.files);
         break;
       case 'done':
         currentEl = null;
@@ -761,6 +1163,7 @@ function getHtml(webview: vscode.Webview): string {
         messagesEl.innerHTML = '';
         currentEl = null;
         currentText = '';
+        reviewEl = null;
         setBusy(false);
         break;
       case 'mode':

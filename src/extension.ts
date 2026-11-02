@@ -89,9 +89,19 @@ async function editSelection(context: vscode.ExtensionContext): Promise<void> {
 }
 
 export function activate(context: vscode.ExtensionContext): void {
-  const provider = new ChatViewProvider(context);
+  const logChannel = vscode.window.createOutputChannel('Kimi Code');
+  context.subscriptions.push(logChannel);
+
+  const provider = new ChatViewProvider(context, logChannel);
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(ChatViewProvider.viewId, provider)
+  );
+
+  // синхронизация флагов настроек с веб-панелью
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration('kimi')) provider.postSettings();
+    })
   );
 
   const cmd = (id: string, fn: () => unknown) =>
@@ -171,6 +181,12 @@ export function activate(context: vscode.ExtensionContext): void {
   cmd('kimi.reviewChanges', () => provider.reviewChanges());
 
   cmd('kimi.sendSelectionToChat', () => provider.insertSelectionToInput());
+
+  cmd('kimi.openInEditor', () => provider.openInEditor());
+
+  cmd('kimi.focus', () => vscode.commands.executeCommand(`${ChatViewProvider.viewId}.focus`));
+
+  cmd('kimi.showLogs', () => logChannel.show());
 }
 
 export function deactivate(): void {

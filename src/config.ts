@@ -69,6 +69,31 @@ export function getDeployCommand(): string {
   return vscode.workspace.getConfiguration('kimi').get<string>('deployCommand', '');
 }
 
+/** Уважать .gitignore при обходе файлов агентом. */
+export function getRespectGitignore(): boolean {
+  return vscode.workspace.getConfiguration('kimi').get<boolean>('respectGitIgnore', true);
+}
+
+/** Прикреплять выделенный код к сообщениям. */
+export function getAttachSelection(): boolean {
+  return vscode.workspace.getConfiguration('kimi').get<boolean>('attachSelection', true);
+}
+
+/** Прикреплять открытый файл целиком (если нет выделения). */
+export function getAttachOpenFile(): boolean {
+  return vscode.workspace.getConfiguration('kimi').get<boolean>('attachOpenFile', false);
+}
+
+/** Отправка по Ctrl+Enter вместо Enter. */
+export function getUseCtrlEnterToSend(): boolean {
+  return vscode.workspace.getConfiguration('kimi').get<boolean>('useCtrlEnterToSend', false);
+}
+
+/** Показывать метки времени у сообщений. */
+export function getShowTimestamps(): boolean {
+  return vscode.workspace.getConfiguration('kimi').get<boolean>('showMessageTimestamps', false);
+}
+
 export async function ensureApiKey(
   context: vscode.ExtensionContext,
   force = false

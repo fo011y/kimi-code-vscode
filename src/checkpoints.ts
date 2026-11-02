@@ -91,4 +91,24 @@ export class CheckpointStore {
     }
     return n;
   }
+
+  /** Найти запись по относительному пути. */
+  find(relFile: string): CheckpointEntry | undefined {
+    return this.entries.find((e) => e.file === relFile);
+  }
+
+  /** Принять изменения: снимок больше не нужен, удаляем запись и бэкап. */
+  discard(entry: CheckpointEntry): void {
+    this.entries = this.entries.filter((e) => e !== entry);
+    try {
+      if (entry.existed && fs.existsSync(entry.backup)) fs.rmSync(entry.backup);
+    } catch {
+      // не критично
+    }
+  }
+
+  /** Принять все изменения сессии. */
+  discardAll(): void {
+    for (const entry of [...this.entries]) this.discard(entry);
+  }
 }
