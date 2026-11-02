@@ -304,6 +304,46 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       case 'renameSession':
         this.renameSession(String(m.id), String(m.title ?? ''));
         break;
+      case 'searchHistory': {
+        const q = String(m.query ?? '').trim().toLowerCase();
+        const items: any[] = [];
+        if (q.length >= 2) {
+          for (const s of this.sessions) {
+            for (let idx = 0; idx < s.history.length; idx++) {
+              const c = s.history[idx].content ?? '';
+              const pos = c.toLowerCase().indexOf(q);
+              if (pos < 0) continue;
+              const start = Math.max(0, pos - 50);
+              const end = Math.min(c.length, pos + q.length + 90);
+              const snippet =
+                (start > 0 ? '…' : '') +
+                c.slice(start, end).replace(/\s+/g, ' ').trim() +
+                (end < c.length ? '…' : '');
+              items.push({
+                sessionId: s.id,
+                sessionTitle: s.title,
+                index: idx,
+                role: s.history[idx].role,
+                snippet,
+              });
+              if (items.length >= 30) break;
+            }
+            if (items.length >= 30) break;
+          }
+        }
+        this.post({ type: 'searchResults', items });
+        break;
+      }
+      case 'jumpToMessage': {
+        const sid = String(m.sessionId ?? '');
+        const idx = Number(m.index);
+        if (!Number.isFinite(idx)) break;
+        if (sid && sid !== this.activeId && this.sessions.some((s) => s.id === sid)) {
+          this.switchSession(sid); // пришлёт clear + history + sessions
+        }
+        this.post({ type: 'jumpTo', index: idx });
+        break;
+      }
       case 'diffFile':
         if (root) {
           const e = this.checkpointsFor().find(String(m.file));
@@ -792,6 +832,28 @@ function getHtml(webview: vscode.Webview): string {
   .tab .x { margin-left: 6px; opacity: 0.5; }
   .tab .x:hover { opacity: 1; color: var(--vscode-errorForeground); }
   .tab.plus { font-weight: bold; }
+  #searchRow { padding: 4px 6px; border-bottom: 1px solid var(--vscode-panel-border); }
+  #searchInput {
+    width: 100%;
+    background: var(--vscode-input-background);
+    color: var(--vscode-input-foreground);
+    border: 1px solid var(--vscode-input-border, transparent);
+    border-radius: 4px; padding: 4px 6px;
+    font-family: var(--vscode-font-family); font-size: 0.85em;
+  }
+  #searchInput:focus { outline: 1px solid var(--vscode-focusBorder); }
+  #searchResults { max-height: 220px; overflow-y: auto; margin-top: 2px; }
+  .sr { padding: 4px 6px; border-radius: 4px; cursor: pointer; font-size: 0.85em; }
+  .sr:hover { background: var(--vscode-list-hoverBackground); }
+  .sr .st { opacity: 0.6; font-size: 0.9em; margin-bottom: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sr .ss { line-height: 1.3; word-wrap: break-word; }
+  .sr mark { background: rgba(234, 179, 8, 0.4); color: inherit; border-radius: 2px; padding: 0 1px; }
+  .srempty { padding: 4px 6px; font-size: 0.85em; opacity: 0.6; }
+  .msg.flash { animation: kimiFlash 1.6s ease-out; }
+  @keyframes kimiFlash {
+    0% { box-shadow: 0 0 0 2px var(--vscode-textLink-foreground); }
+    100% { box-shadow: 0 0 0 0 transparent; }
+  }
   #messages { flex: 1; overflow-y: auto; padding: 10px; }
   .msg { margin-bottom: 12px; padding: 8px 10px; border-radius: 6px; line-height: 1.45; word-wrap: break-word; }
   .msg.user {
@@ -901,6 +963,10 @@ function getHtml(webview: vscode.Webview): string {
 </head>
 <body>
   <div id="tabs"></div>
+  <div id="searchRow" style="display:none">
+    <input id="searchInput" placeholder="Поиск по истории всех диалогов… (Enter — к первому результату)" />
+    <div id="searchResults"></div>
+  </div>
   <div id="messages"></div>
   <div id="inputArea">
     <textarea id="input" placeholder="Спросите Kimi… (Enter — отправить, @файл — прикрепить, /help — команды)"></textarea>
@@ -944,6 +1010,9 @@ function getHtml(webview: vscode.Webview): string {
   var authBtn = document.getElementById('authBtn');
   var hintEl = document.getElementById('hint');
   var usageEl = document.getElementById('usage');
+  var searchRow = document.getElementById('searchRow');
+  var searchInput = document.getElementById('searchInput');
+  var searchResults = document.getElementById('searchResults');
 
   var settings = { ctrlEnter: false, timestamps: false };
 
@@ -1292,6 +1361,100 @@ function getHtml(webview: vscode.Webview): string {
       vscode.postMessage({ type: 'newSession' });
     });
     tabsEl.appendChild(plus);
+    var searchTab = document.createElement('span');
+    searchTab.className = 'tab';
+    searchTab.textContent = '🔍';
+    searchTab.title = 'Поиск по истории диалогов';
+    searchTab.addEventListener('click', toggleSearch);
+    tabsEl.appendChild(searchTab);
+  }
+
+  // ---------- поиск по истории ----------
+  var searchTimer = null;
+  var lastQuery = '';
+
+  function toggleSearch() {
+    var show = searchRow.style.display === 'none';
+    searchRow.style.display = show ? '' : 'none';
+    if (show) {
+      searchInput.focus();
+      if (searchInput.value.trim()) runSearch(searchInput.value);
+    }
+  }
+
+  function runSearch(q) {
+    lastQuery = q.trim();
+    if (lastQuery.length < 2) {
+      searchResults.innerHTML = '';
+      return;
+    }
+    vscode.postMessage({ type: 'searchHistory', query: lastQuery });
+  }
+
+  searchInput.addEventListener('input', function () {
+    if (searchTimer) clearTimeout(searchTimer);
+    searchTimer = setTimeout(function () { runSearch(searchInput.value); }, 250);
+  });
+
+  searchInput.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') {
+      var first = searchResults.querySelector('.sr');
+      if (first) first.click();
+    } else if (e.key === 'Escape') {
+      searchRow.style.display = 'none';
+      inputEl.focus();
+    }
+  });
+
+  function renderSearchResults(items, query) {
+    searchResults.innerHTML = '';
+    if (!lastQuery || lastQuery.length < 2) return;
+    if (!items || items.length === 0) {
+      var empty = document.createElement('div');
+      empty.className = 'srempty';
+      empty.textContent = 'Ничего не найдено.';
+      searchResults.appendChild(empty);
+      return;
+    }
+    var ql = (query || '').toLowerCase();
+    items.forEach(function (it) {
+      var row = document.createElement('div');
+      row.className = 'sr';
+      var st = document.createElement('div');
+      st.className = 'st';
+      st.textContent = (it.role === 'user' ? '👤 ' : '🤖 ') + it.sessionTitle;
+      row.appendChild(st);
+      var ss = document.createElement('div');
+      ss.className = 'ss';
+      // подсветка совпадений (только DOM-узлы, без HTML-инъекций)
+      var text = it.snippet || '';
+      var lower = text.toLowerCase();
+      var pos = 0;
+      while (ql && pos < text.length) {
+        var hit = lower.indexOf(ql, pos);
+        if (hit < 0) break;
+        if (hit > pos) ss.appendChild(document.createTextNode(text.slice(pos, hit)));
+        var mark = document.createElement('mark');
+        mark.textContent = text.slice(hit, hit + ql.length);
+        ss.appendChild(mark);
+        pos = hit + ql.length;
+      }
+      ss.appendChild(document.createTextNode(text.slice(pos)));
+      row.appendChild(ss);
+      row.addEventListener('click', function () {
+        vscode.postMessage({ type: 'jumpToMessage', sessionId: it.sessionId, index: it.index });
+      });
+      searchResults.appendChild(row);
+    });
+  }
+
+  function jumpToMessage(index) {
+    var el = messagesEl.querySelector('[data-idx="' + index + '"]');
+    if (!el) return;
+    el.scrollIntoView({ block: 'center' });
+    el.classList.remove('flash');
+    void el.offsetWidth; // перезапуск анимации
+    el.classList.add('flash');
   }
 
   function setBusy(b) {
@@ -1362,9 +1525,18 @@ function getHtml(webview: vscode.Webview): string {
         toolGroup = null;
         for (var i = 0; i < (m.items || []).length; i++) {
           var it = m.items[i];
-          if (it.role === 'user') addMsg('user', it.content.split('\\n')[0].slice(0, 300));
-          else if (it.role === 'assistant') addMsg('assistant', it.content);
+          var hel = null;
+          if (it.role === 'user') hel = addMsg('user', it.content.split('\\n')[0].slice(0, 300));
+          else if (it.role === 'assistant') hel = addMsg('assistant', it.content);
+          if (hel && hel.parentElement) hel.parentElement.setAttribute('data-idx', i);
         }
+        scrollDown();
+        break;
+      case 'searchResults':
+        renderSearchResults(m.items, lastQuery);
+        break;
+      case 'jumpTo':
+        jumpToMessage(m.index);
         break;
       case 'sessions':
         renderSessions(m.items);
