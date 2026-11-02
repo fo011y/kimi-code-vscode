@@ -36,29 +36,85 @@
       "kimi": [
         {
           "id": "kimi.chatView",
-          "name": "Kimi Чат"
+          "name": "Kimi Чат",
+          "type": "webview"
         }
       ]
     },
     "commands": [
-      { "command": "kimi.login", "title": "Kimi: Войти через сайт (OAuth)" },
-      { "command": "kimi.logout", "title": "Kimi: Выйти из аккаунта" },
-      { "command": "kimi.accountMenu", "title": "Kimi: Аккаунт и статус" },
-      { "command": "kimi.setApiKey", "title": "Kimi: Указать API-ключ" },
-      { "command": "kimi.newChat", "title": "Kimi: Новый диалог" },
-      { "command": "kimi.setMode", "title": "Kimi: Выбрать режим автономности" },
-      { "command": "kimi.setModel", "title": "Kimi: Выбрать модель" },
-      { "command": "kimi.reviewChanges", "title": "Kimi: Изменения за сессию (откат)" },
-      { "command": "kimi.sendSelectionToChat", "title": "Kimi: Отправить выделенное в чат" },
-      { "command": "kimi.askAboutFile", "title": "Kimi: Спросить о текущем файле", "icon": "$(sparkle)" },
-      { "command": "kimi.openInEditor", "title": "Kimi: Открыть чат в редакторе" },
-      { "command": "kimi.focus", "title": "Kimi: Фокус на чат" },
-      { "command": "kimi.showLogs", "title": "Kimi: Показать логи" },
-      { "command": "kimi.explainSelection", "title": "Kimi: Объяснить выделенное" },
-      { "command": "kimi.fixSelection", "title": "Kimi: Исправить выделенное" },
-      { "command": "kimi.refactorSelection", "title": "Kimi: Отрефакторить выделенное" },
-      { "command": "kimi.addTests", "title": "Kimi: Написать тесты для выделенного" },
-      { "command": "kimi.editSelection", "title": "Kimi: Изменить выделенное по инструкции" }
+      {
+        "command": "kimi.login",
+        "title": "Kimi: Войти через сайт (OAuth)"
+      },
+      {
+        "command": "kimi.logout",
+        "title": "Kimi: Выйти из аккаунта"
+      },
+      {
+        "command": "kimi.accountMenu",
+        "title": "Kimi: Аккаунт и статус"
+      },
+      {
+        "command": "kimi.setApiKey",
+        "title": "Kimi: Указать API-ключ"
+      },
+      {
+        "command": "kimi.newChat",
+        "title": "Kimi: Новый диалог"
+      },
+      {
+        "command": "kimi.setMode",
+        "title": "Kimi: Выбрать режим автономности"
+      },
+      {
+        "command": "kimi.setModel",
+        "title": "Kimi: Выбрать модель"
+      },
+      {
+        "command": "kimi.reviewChanges",
+        "title": "Kimi: Изменения за сессию (откат)"
+      },
+      {
+        "command": "kimi.sendSelectionToChat",
+        "title": "Kimi: Отправить выделенное в чат"
+      },
+      {
+        "command": "kimi.askAboutFile",
+        "title": "Kimi: Спросить о текущем файле",
+        "icon": "$(sparkle)"
+      },
+      {
+        "command": "kimi.openInEditor",
+        "title": "Kimi: Открыть чат в редакторе"
+      },
+      {
+        "command": "kimi.focus",
+        "title": "Kimi: Фокус на чат"
+      },
+      {
+        "command": "kimi.showLogs",
+        "title": "Kimi: Показать логи"
+      },
+      {
+        "command": "kimi.explainSelection",
+        "title": "Kimi: Объяснить выделенное"
+      },
+      {
+        "command": "kimi.fixSelection",
+        "title": "Kimi: Исправить выделенное"
+      },
+      {
+        "command": "kimi.refactorSelection",
+        "title": "Kimi: Отрефакторить выделенное"
+      },
+      {
+        "command": "kimi.addTests",
+        "title": "Kimi: Написать тесты для выделенного"
+      },
+      {
+        "command": "kimi.editSelection",
+        "title": "Kimi: Изменить выделенное по инструкции"
+      }
     ],
     "keybindings": [
       {
@@ -75,14 +131,38 @@
     ],
     "menus": {
       "editor/title": [
-        { "command": "kimi.askAboutFile", "when": "resourceScheme == file || resourceScheme == untitled", "group": "navigation@1" }
+        {
+          "command": "kimi.askAboutFile",
+          "when": "resourceScheme == file || resourceScheme == untitled",
+          "group": "navigation@1"
+        }
       ],
       "editor/context": [
-        { "command": "kimi.explainSelection", "when": "editorHasSelection", "group": "kimi@1" },
-        { "command": "kimi.fixSelection", "when": "editorHasSelection", "group": "kimi@2" },
-        { "command": "kimi.refactorSelection", "when": "editorHasSelection", "group": "kimi@3" },
-        { "command": "kimi.addTests", "when": "editorHasSelection", "group": "kimi@4" },
-        { "command": "kimi.editSelection", "when": "editorHasSelection", "group": "kimi@5" }
+        {
+          "command": "kimi.explainSelection",
+          "when": "editorHasSelection",
+          "group": "kimi@1"
+        },
+        {
+          "command": "kimi.fixSelection",
+          "when": "editorHasSelection",
+          "group": "kimi@2"
+        },
+        {
+          "command": "kimi.refactorSelection",
+          "when": "editorHasSelection",
+          "group": "kimi@3"
+        },
+        {
+          "command": "kimi.addTests",
+          "when": "editorHasSelection",
+          "group": "kimi@4"
+        },
+        {
+          "command": "kimi.editSelection",
+          "when": "editorHasSelection",
+          "group": "kimi@5"
+        }
       ]
     },
     "configuration": {
@@ -115,7 +195,12 @@
         },
         "kimi.permissionMode": {
           "type": "string",
-          "enum": ["plan", "ask", "autoEdit", "fullAuto"],
+          "enum": [
+            "plan",
+            "ask",
+            "autoEdit",
+            "fullAuto"
+          ],
           "enumDescriptions": [
             "Режим планирования: Kimi только читает проект и составляет план, ничего не меняя",
             "Каждая правка файла и каждая команда требуют подтверждения",
