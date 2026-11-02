@@ -52,7 +52,7 @@ Kimi in the status bar — bottom right, next to Claude Code:
   - **Plan** — read-only: Kimi explores the project and produces a step-by-step plan;
   - **Ask** — every file edit and command requires confirmation;
   - **Auto-edit** — files change silently, commands need confirmation;
-  - **Full auto** — ⚠️ no confirmations at all.
+  - **Full auto** — ⚠️ full carte blanche: edits, commands, GitHub auto-push and auto-deploy — all without asking, even if `kimi.autoPush`/`kimi.autoDeploy` are off.
 - **Checkpoints / Review & revert** — a snapshot is taken before the first edit of every file in a session. After an agent task, an "Changes by Kimi" panel appears in chat: click a file for a diff, accept/reject per file or all at once. Also available via `Kimi: Review Session Changes` or `/review`.
 - **Multi-sessions** — conversation tabs above the chat: new (＋), switch, rename (double-click), delete (✕). Sessions persist per project.
 - **Chat in editor tab** — `Kimi: Open Chat in Editor` mirrors the sidebar chat into a full editor panel.
@@ -61,8 +61,8 @@ Kimi in the status bar — bottom right, next to Claude Code:
 - **Slash commands** — `/clear`, `/compact`, `/review`, `/plan`, `/ask`, `/auto`, `/fullauto`, `/help`.
 - **Session history** — conversations survive VS Code restarts (per project).
 - **Token counter** — per-request and per-session usage under the input box.
-- **GitHub push** — `git_push` agent tool and `kimi.autoPush` setting: automatic commit + push after agent tasks.
-- **Project deploy** — `deploy` agent tool and `kimi.autoDeploy` setting with `kimi.deployCommand` (any command: `npm run deploy`, `vercel --prod`, `netlify deploy --prod`…).
+- **GitHub push** — `git_push` agent tool and `kimi.autoPush` setting: automatic commit + push after agent tasks. In **Full auto** mode pushing always happens, regardless of the setting.
+- **Project deploy** — `deploy` agent tool and `kimi.autoDeploy` setting with `kimi.deployCommand` (any command: `npm run deploy`, `vercel --prod`, `netlify deploy --prod`…). In **Full auto** mode deploy always runs if `kimi.deployCommand` is set.
 - **Model picker** — dropdown in chat (live list from `GET /models`, ⟳ refreshes) or `Kimi: Select Model`.
 - **Sign in via Kimi website (OAuth)** — no API key needed: the same Device Code flow as the official Kimi Code CLI; tokens refresh automatically.
 - **Editor title button** — a ✨ icon at the top right of every editor inserts `@file` (plus the selected line range) into the chat input.
@@ -97,9 +97,9 @@ This uses the same Device Code OAuth flow (RFC 8628) as the official Kimi Code C
 | `kimi.maxTokens` | `8192` | Max tokens per response |
 | `kimi.maxAgentSteps` | `25` | Agent step limit per request |
 | `kimi.permissionMode` | `ask` | Autonomy: `plan` / `ask` / `autoEdit` / `fullAuto` |
-| `kimi.autoPush` | `false` | Auto commit & push to GitHub after agent tasks |
+| `kimi.autoPush` | `false` | Auto commit & push to GitHub after agent tasks (always on in `fullAuto` mode) |
 | `kimi.deployCommand` | `""` | Deploy command (shell) |
-| `kimi.autoDeploy` | `false` | Auto deploy after agent tasks (after auto-push) |
+| `kimi.autoDeploy` | `false` | Auto deploy after agent tasks, after auto-push (always on in `fullAuto` if a command is set) |
 | `kimi.respectGitIgnore` | `true` | Respect `.gitignore` when walking files |
 | `kimi.attachSelection` | `true` | Attach selected code to messages |
 | `kimi.attachOpenFile` | `false` | Attach the whole open file when nothing is selected |
@@ -109,7 +109,7 @@ This uses the same Device Code OAuth flow (RFC 8628) as the official Kimi Code C
 ## Security
 
 - The API key and OAuth tokens are stored only in VS Code SecretStorage.
-- In `ask` mode every file write and command requires confirmation. `fullAuto` disables all confirmations — use only in projects you trust (preferably under git).
+- In `ask` mode every file write and command requires confirmation. `fullAuto` is full carte blanche: it disables all confirmations and force-enables GitHub auto-push and auto-deploy (regardless of `kimi.autoPush`/`kimi.autoDeploy`). Use only in projects you trust (preferably under git).
 - Agent tools cannot leave the opened project folder.
 - Command timeout: 60 seconds (deploy: 10 minutes).
 
