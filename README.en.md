@@ -23,6 +23,20 @@ code --install-extension kimi-code-0.7.0.vsix
 
 Or in VS Code: `Ctrl+Shift+P` → **Extensions: Install from VSIX…** → pick the downloaded file.
 
+## 📸 Screenshots
+
+Kimi chat in an editor tab — model picker, autonomy mode, account button (`✓ Kimi.ai` = signed in via website):
+
+![Kimi Code chat](docs/screenshots/chat-panel.png)
+
+The ✨ button in the editor title bar — top right, next to the Claude Code icon:
+
+![Editor title button](docs/screenshots/editor-button.png)
+
+Kimi in the status bar — bottom right, next to Claude Code:
+
+![Status bar](docs/screenshots/statusbar.png)
+
 ## Features
 
 - **Sidebar chat panel** — streaming conversation with Kimi. The selected code is automatically attached as context.

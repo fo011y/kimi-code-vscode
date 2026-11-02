@@ -88,14 +88,17 @@ export async function streamChat(
     signal?: AbortSignal;
   } = {}
 ): Promise<ChatResult> {
+  // Управляемый endpoint подписки Kimi Code (OAuth) принимает только
+  // temperature=1 — не отправляем параметр вовсе, сервер применит свой дефолт.
+  const isManaged = /\/\/api\.kimi\.(com|ai)\/coding\//.test(cfg.baseUrl);
   const body: Record<string, unknown> = {
     model: cfg.model,
     messages,
-    temperature: cfg.temperature,
     max_tokens: cfg.maxTokens,
     stream: true,
     stream_options: { include_usage: true },
   };
+  if (!isManaged) body.temperature = cfg.temperature;
   if (opts.tools && opts.tools.length > 0) {
     body.tools = opts.tools;
     body.tool_choice = 'auto';
