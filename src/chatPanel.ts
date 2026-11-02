@@ -29,6 +29,7 @@ const HELP_TEXT = [
   '/review — изменения за сессию: diff и откат (checkpoints)',
   '/plan, /ask, /auto, /fullauto — переключить режим автономности',
   '@путь/к/файлу — прикрепить файл к вопросу',
+  'Пока агент занят: Enter — сообщение в очередь, ⚡ — прервать и отправить сразу',
 ].join('\n');
 
 interface Session {
@@ -66,6 +67,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
   private webviews = new Set<vscode.Webview>();
   private pending: Array<{ text: string; agent: boolean }> = [];
+  private queue: Array<{ text: string; agent: boolean }> = [];
+  private lightningNext: { text: string; agent: boolean } | null = null;
   private sessions: Session[] = [];
   private activeId = '';
   private checkpointStores = new Map<string, CheckpointStore>();
@@ -243,6 +246,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         items: this.active().history.map((h) => ({ role: h.role, content: h.content ?? '' })),
       });
     }
+    send({ type: 'queue', items: this.queue.map((q) => q.text) });
     void this.refreshModels();
     void this.postAuthState();
   }
@@ -269,7 +273,17 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     switch (m?.type) {
       case 'ask':
-        await this.handleAsk(String(m.text ?? ''), !!m.agent);
+        if (this.busy) this.enqueue(String(m.text ?? ''), !!m.agent);
+        else await this.handleAsk(String(m.text ?? ''), !!m.agent);
+        break;
+      case 'enqueue':
+        this.enqueue(String(m.text ?? ''), !!m.agent);
+        break;
+      case 'dequeue':
+        this.removeFromQueue(Number(m.index));
+        break;
+      case 'lightning':
+        this.sendLightning(String(m.text ?? ''), !!m.agent);
         break;
       case 'cancel':
         this.abort?.abort();
@@ -438,7 +452,55 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       await vscode.commands.executeCommand(`${ChatViewProvider.viewId}.focus`);
       return;
     }
+    if (this.busy) {
+      this.enqueue(text, agent);
+      return;
+    }
     await this.handleAsk(text, agent);
+  }
+
+  // ---------- очередь сообщений ----------
+
+  /** Поставить сообщение в очередь (отправится, когда агент освободится). */
+  private enqueue(text: string, agent: boolean): void {
+    const t = text.trim();
+    if (!t) return;
+    this.queue.push({ text: t, agent });
+    this.postQueue();
+  }
+
+  private removeFromQueue(index: number): void {
+    if (index >= 0 && index < this.queue.length) this.queue.splice(index, 1);
+    this.postQueue();
+  }
+
+  private postQueue(): void {
+    this.post({ type: 'queue', items: this.queue.map((q) => q.text) });
+  }
+
+  /**
+   * Запустить следующее сообщение: «молния» в приоритете, затем очередь.
+   * Вызывается из finally handleAsk, когда агент освободился.
+   */
+  private pumpQueue(): void {
+    if (this.busy) return;
+    const next = this.lightningNext ?? this.queue.shift() ?? null;
+    this.lightningNext = null;
+    if (!next) return;
+    this.postQueue();
+    void this.handleAsk(next.text, next.agent);
+  }
+
+  /** «Молния»: прервать текущую задачу и отправить сообщение немедленно. */
+  private sendLightning(text: string, agent: boolean): void {
+    const t = text.trim();
+    if (!t) return;
+    this.lightningNext = { text: t, agent };
+    if (this.busy) {
+      this.abort?.abort(); // finally текущей задачи вызовет pumpQueue → молния уйдёт первой
+    } else {
+      this.pumpQueue();
+    }
   }
 
   /** Горячая клавиша: вставить ссылку на выделенный файл в поле ввода чата. */
@@ -778,6 +840,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       }
     } finally {
       this.busy = false;
+      this.pumpQueue(); // отправить «молнию» или следующее сообщение из очереди
     }
   }
 }
@@ -928,6 +991,17 @@ function getHtml(webview: vscode.Webview): string {
     border-top: 1px solid var(--vscode-panel-border);
     padding: 8px;
   }
+  #queueRow { margin-bottom: 6px; flex-direction: column; gap: 3px; }
+  .qchip {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 0.85em; padding: 3px 8px; border-radius: 4px;
+    background: var(--vscode-input-background);
+    border: 1px solid var(--vscode-input-border, transparent);
+  }
+  .qchip .qn { opacity: 0.5; }
+  .qchip .qt { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: 0.85; }
+  .qchip .qx { cursor: pointer; opacity: 0.5; }
+  .qchip .qx:hover { opacity: 1; color: var(--vscode-errorForeground); }
   #input {
     width: 100%; min-height: 56px; resize: vertical;
     background: var(--vscode-input-background);
@@ -969,6 +1043,7 @@ function getHtml(webview: vscode.Webview): string {
   </div>
   <div id="messages"></div>
   <div id="inputArea">
+    <div id="queueRow" style="display:none"></div>
     <textarea id="input" placeholder="Спросите Kimi… (Enter — отправить, @файл — прикрепить, /help — команды)"></textarea>
     <div class="row">
       <label><input type="checkbox" id="agent" checked> Агент</label>
@@ -980,6 +1055,7 @@ function getHtml(webview: vscode.Webview): string {
       </select>
       <button id="newChat" class="secondary" title="Новая сессия">Новый чат</button>
       <span class="spacer"></span>
+      <button id="lightning" class="secondary" title="Молния: прервать текущую задачу и отправить сообщение немедленно">⚡</button>
       <button id="send">Отправить</button>
     </div>
     <div class="row">
@@ -1013,6 +1089,9 @@ function getHtml(webview: vscode.Webview): string {
   var searchRow = document.getElementById('searchRow');
   var searchInput = document.getElementById('searchInput');
   var searchResults = document.getElementById('searchResults');
+  var queueRow = document.getElementById('queueRow');
+  var lightningBtn = document.getElementById('lightning');
+  var defaultPlaceholder = inputEl.placeholder;
 
   var settings = { ctrlEnter: false, timestamps: false };
 
@@ -1457,15 +1536,53 @@ function getHtml(webview: vscode.Webview): string {
     el.classList.add('flash');
   }
 
+  function renderQueue(items) {
+    queueRow.innerHTML = '';
+    queueRow.style.display = items && items.length ? 'flex' : 'none';
+    (items || []).forEach(function (t, i) {
+      var chip = document.createElement('div');
+      chip.className = 'qchip';
+      var n = document.createElement('span');
+      n.className = 'qn';
+      n.textContent = '⏳';
+      var txt = document.createElement('span');
+      txt.className = 'qt';
+      txt.textContent = t;
+      txt.title = t;
+      var x = document.createElement('span');
+      x.className = 'qx';
+      x.textContent = '✕';
+      x.title = 'Убрать из очереди';
+      x.addEventListener('click', function () {
+        vscode.postMessage({ type: 'dequeue', index: i });
+      });
+      chip.appendChild(n);
+      chip.appendChild(txt);
+      chip.appendChild(x);
+      queueRow.appendChild(chip);
+    });
+  }
+
   function setBusy(b) {
     busy = b;
     sendBtn.textContent = b ? 'Стоп' : 'Отправить';
+    sendBtn.title = b
+      ? 'Прервать текущую задачу (сообщения из очереди продолжат выполняться)'
+      : '';
+    inputEl.placeholder = b
+      ? 'Агент занят: Enter — в очередь, ⚡ — прервать и отправить сразу'
+      : defaultPlaceholder;
     inputEl.disabled = false;
   }
 
+  // Enter: занят → в очередь; свободен → отправить
   function send() {
     if (busy) {
-      vscode.postMessage({ type: 'cancel' });
+      var qtext = inputEl.value.trim();
+      if (qtext) {
+        inputEl.value = '';
+        vscode.postMessage({ type: 'enqueue', text: qtext, agent: agentEl.checked });
+      }
       return;
     }
     var text = inputEl.value;
@@ -1475,7 +1592,22 @@ function getHtml(webview: vscode.Webview): string {
     setBusy(true);
   }
 
-  sendBtn.addEventListener('click', send);
+  // Кнопка «Отправить/Стоп»: занят → прервать задачу; свободен → отправить
+  sendBtn.addEventListener('click', function () {
+    if (busy) {
+      vscode.postMessage({ type: 'cancel' });
+      return;
+    }
+    send();
+  });
+
+  // «Молния»: прервать текущую задачу и отправить сообщение немедленно
+  lightningBtn.addEventListener('click', function () {
+    var text = inputEl.value.trim();
+    if (!text) return;
+    inputEl.value = '';
+    vscode.postMessage({ type: 'lightning', text: text, agent: agentEl.checked });
+  });
   newChatBtn.addEventListener('click', function () {
     vscode.postMessage({ type: 'newChat' });
   });
@@ -1499,6 +1631,7 @@ function getHtml(webview: vscode.Webview): string {
       case 'start':
         currentText = '';
         currentEl = addMsg('assistant', '');
+        setBusy(true); // задача могла начаться из очереди/«молнии», а не по кнопке
         break;
       case 'delta':
         if (!currentEl) currentEl = addMsg('assistant', '');
@@ -1540,6 +1673,9 @@ function getHtml(webview: vscode.Webview): string {
         break;
       case 'sessions':
         renderSessions(m.items);
+        break;
+      case 'queue':
+        renderQueue(m.items);
         break;
       case 'settings':
         settings.ctrlEnter = !!m.ctrlEnter;

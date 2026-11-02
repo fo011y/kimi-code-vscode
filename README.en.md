@@ -61,6 +61,7 @@ Kimi in the status bar — bottom right, next to Claude Code:
 - **Slash commands** — `/clear`, `/compact`, `/review`, `/plan`, `/ask`, `/auto`, `/fullauto`, `/help`.
 - **Session history** — conversations survive VS Code restarts (per project). Opening the chat automatically restores the last active session with its history (up to 100 messages).
 - **History search** — a 🔍 button in the session tabs: searches across all project sessions, highlights matches; clicking a result switches to that session and scrolls to the found message.
+- **Message queue & lightning** — while the agent is busy, Enter queues the message (sent automatically afterwards; the queue is listed above the input, each item removable via ✕). The ⚡ button aborts the current task and sends your message immediately.
 - **Token counter** — per-request and per-session usage under the input box.
 - **GitHub push** — `git_push` agent tool and `kimi.autoPush` setting: automatic commit + push after agent tasks. In **Full auto** mode pushing always happens, regardless of the setting.
 - **Project deploy** — `deploy` agent tool and `kimi.autoDeploy` setting with `kimi.deployCommand` (any command: `npm run deploy`, `vercel --prod`, `netlify deploy --prod`…). In **Full auto** mode deploy always runs if `kimi.deployCommand` is set.
