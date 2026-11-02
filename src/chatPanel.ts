@@ -383,6 +383,23 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     this.post({ type: 'insertText', text: `@${rel} ` });
   }
 
+  /** Кнопка в заголовке редактора: вставить @-упоминание активного файла в поле ввода. */
+  async insertActiveFileToInput(): Promise<void> {
+    const ed = vscode.window.activeTextEditor;
+    if (!ed) {
+      vscode.window.showWarningMessage('Откройте файл в редакторе.');
+      return;
+    }
+    const rel = vscode.workspace.asRelativePath(ed.document.uri);
+    if (this.webviews.size === 0) {
+      await vscode.commands.executeCommand(`${ChatViewProvider.viewId}.focus`);
+    }
+    const mention = ed.selection.isEmpty
+      ? `@${rel} `
+      : `@${rel} (строки ${ed.selection.start.line + 1}–${ed.selection.end.line + 1}) `;
+    this.post({ type: 'insertText', text: mention });
+  }
+
   /** Review-панель (QuickPick): все изменённые за сессию файлы с diff и откатом. */
   async reviewChanges(): Promise<void> {
     const rootDir = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;

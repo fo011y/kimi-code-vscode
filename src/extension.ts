@@ -212,6 +212,8 @@ export function activate(context: vscode.ExtensionContext): void {
 
   cmd('kimi.sendSelectionToChat', () => provider.insertSelectionToInput());
 
+  cmd('kimi.askAboutFile', () => provider.insertActiveFileToInput());
+
   cmd('kimi.openInEditor', () => provider.openInEditor());
 
   cmd('kimi.focus', () => vscode.commands.executeCommand(`${ChatViewProvider.viewId}.focus`));

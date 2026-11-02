@@ -45,6 +45,7 @@
       { "command": "kimi.setModel", "title": "Kimi: Выбрать модель" },
       { "command": "kimi.reviewChanges", "title": "Kimi: Изменения за сессию (откат)" },
       { "command": "kimi.sendSelectionToChat", "title": "Kimi: Отправить выделенное в чат" },
+      { "command": "kimi.askAboutFile", "title": "Kimi: Спросить о текущем файле", "icon": "$(sparkle)" },
       { "command": "kimi.openInEditor", "title": "Kimi: Открыть чат в редакторе" },
       { "command": "kimi.focus", "title": "Kimi: Фокус на чат" },
       { "command": "kimi.showLogs", "title": "Kimi: Показать логи" },
@@ -68,6 +69,9 @@
       }
     ],
     "menus": {
+      "editor/title": [
+        { "command": "kimi.askAboutFile", "when": "resourceScheme == file || resourceScheme == untitled", "group": "navigation@1" }
+      ],
       "editor/context": [
         { "command": "kimi.explainSelection", "when": "editorHasSelection", "group": "kimi@1" },
         { "command": "kimi.fixSelection", "when": "editorHasSelection", "group": "kimi@2" },
