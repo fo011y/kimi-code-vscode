@@ -801,6 +801,15 @@ function getHtml(webview: vscode.Webview): string {
     white-space: pre-wrap;
   }
   .tool.error { border-left-color: var(--vscode-errorForeground); }
+  .toolgroup { margin: 6px 0; }
+  .toolgroup .tg-head {
+    font-size: 0.85em; opacity: 0.9; cursor: pointer; user-select: none;
+    padding: 2px 0;
+  }
+  .toolgroup .tg-head:hover { opacity: 1; }
+  .toolgroup .tg-list { display: block; }
+  .toolgroup.collapsed .tg-list { display: none; }
+  .toolgroup.collapsed .tg-head { opacity: 0.7; }
   .review {
     margin: 8px 0; padding: 8px; border-radius: 6px;
     border: 1px solid var(--vscode-textLink-foreground);
@@ -1011,13 +1020,76 @@ function getHtml(webview: vscode.Webview): string {
     return body;
   }
 
-  function addTool(name, status, detail) {
-    var div = document.createElement('div');
-    div.className = 'tool' + (status === 'error' ? ' error' : '');
+  // Группа инструментов текущего хода агента: строки обновляются на месте
+  // (⏳ → ✅), а после ответа блок сворачивается в одну строку-сводку.
+  var toolGroup = null;
+
+  function toolLineText(name, status, detail) {
     var icon = status === 'running' ? '⏳' : status === 'done' ? '✅' : '❌';
-    div.textContent = icon + ' ' + name + (status === 'running' ? '…' : '') + (detail ? ' — ' + detail : '');
-    messagesEl.appendChild(div);
+    return icon + ' ' + name + (status === 'running' ? '…' : '') + (detail ? ' — ' + detail : '');
+  }
+
+  function ensureToolGroup() {
+    if (toolGroup) return toolGroup;
+    var root = document.createElement('div');
+    root.className = 'toolgroup';
+    var head = document.createElement('div');
+    head.className = 'tg-head';
+    head.textContent = '🔧 Инструменты';
+    var list = document.createElement('div');
+    list.className = 'tg-list';
+    head.addEventListener('click', function () {
+      root.classList.toggle('collapsed');
+    });
+    root.appendChild(head);
+    root.appendChild(list);
+    messagesEl.appendChild(root);
+    toolGroup = { root: root, head: head, list: list, lines: [], total: 0 };
+    return toolGroup;
+  }
+
+  function updateToolGroupHead() {
+    if (!toolGroup) return;
+    var pending = 0;
+    for (var i = 0; i < toolGroup.lines.length; i++) {
+      if (!toolGroup.lines[i].done) pending++;
+    }
+    toolGroup.head.textContent =
+      '🔧 Инструменты (' + toolGroup.total + ')' + (pending > 0 ? ' — выполняется…' : '');
+  }
+
+  function addTool(name, status, detail) {
+    var g = ensureToolGroup();
+    var line = null;
+    if (status !== 'running') {
+      // закрыть самый старый «висячий» вызов с тем же именем
+      for (var i = 0; i < g.lines.length; i++) {
+        if (!g.lines[i].done && g.lines[i].name === name) { line = g.lines[i]; break; }
+      }
+    }
+    if (line) {
+      line.done = true;
+      line.el.className = 'tool' + (status === 'error' ? ' error' : '');
+      line.el.textContent = toolLineText(name, status, detail);
+    } else {
+      g.total++;
+      var div = document.createElement('div');
+      div.className = 'tool' + (status === 'error' ? ' error' : '');
+      div.textContent = toolLineText(name, status, detail);
+      g.list.appendChild(div);
+      g.lines.push({ el: div, name: name, done: status !== 'running' });
+    }
+    updateToolGroupHead();
     scrollDown();
+  }
+
+  /** Свернуть блок инструментов в одну строку после ответа агента. */
+  function collapseToolGroup() {
+    if (!toolGroup) return;
+    toolGroup.root.classList.add('collapsed');
+    toolGroup.head.textContent =
+      '✅ Шаги агента (' + toolGroup.total + ') — нажмите, чтобы развернуть';
+    toolGroup = null;
   }
 
   function addInfo(text) {
@@ -1184,6 +1256,7 @@ function getHtml(webview: vscode.Webview): string {
       case 'history':
         messagesEl.innerHTML = '';
         reviewEl = null;
+        toolGroup = null;
         for (var i = 0; i < (m.items || []).length; i++) {
           var it = m.items[i];
           if (it.role === 'user') addMsg('user', it.content.split('\\n')[0].slice(0, 300));
@@ -1204,11 +1277,13 @@ function getHtml(webview: vscode.Webview): string {
       case 'done':
         currentEl = null;
         currentText = '';
+        collapseToolGroup();
         setBusy(false);
         inputEl.focus();
         break;
       case 'error':
         addMsg('error', m.text);
+        collapseToolGroup();
         setBusy(false);
         break;
       case 'clear':
@@ -1216,6 +1291,7 @@ function getHtml(webview: vscode.Webview): string {
         currentEl = null;
         currentText = '';
         reviewEl = null;
+        toolGroup = null;
         setBusy(false);
         break;
       case 'mode':
