@@ -39,6 +39,7 @@
     "commands": [
       { "command": "kimi.login", "title": "Kimi: Войти через сайт (OAuth)" },
       { "command": "kimi.logout", "title": "Kimi: Выйти из аккаунта" },
+      { "command": "kimi.accountMenu", "title": "Kimi: Аккаунт и статус" },
       { "command": "kimi.setApiKey", "title": "Kimi: Указать API-ключ" },
       { "command": "kimi.newChat", "title": "Kimi: Новый диалог" },
       { "command": "kimi.setMode", "title": "Kimi: Выбрать режим автономности" },

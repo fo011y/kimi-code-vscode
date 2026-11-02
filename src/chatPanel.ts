@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { ApiConfig, ChatMessage, FALLBACK_MODELS, listModels, streamChat, TokenUsage } from './api';
 import { runAgentLoop } from './agent';
+import { getAuthState } from './auth';
 import { CheckpointEntry, CheckpointStore } from './checkpoints';
 import { autoDeployIfEnabled, autoPushIfEnabled, consumeChangesMade, setSnapshotHook } from './tools';
 import {
@@ -228,6 +229,16 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       });
     }
     void this.refreshModels();
+    void this.postAuthState();
+  }
+
+  /** Отправить состояние аккаунта (кнопка входа) во все веб-панели. */
+  async postAuthState(): Promise<void> {
+    const st = await getAuthState(this.context);
+    this.post({
+      type: 'auth',
+      state: st.kind === 'oauth' ? { kind: 'oauth', label: st.label } : { kind: st.kind },
+    });
   }
 
   /** Переслать флаги настроек во все веб-панели (при изменении конфигурации). */
@@ -259,6 +270,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         break;
       case 'refreshModels':
         await this.refreshModels();
+        break;
+      case 'authClick':
+        await vscode.commands.executeCommand('kimi.accountMenu');
         break;
       case 'newSession':
         this.createSession();
@@ -859,6 +873,8 @@ function getHtml(webview: vscode.Webview): string {
       <label title="Модель Kimi">Модель</label>
       <select id="model" title="Модель Kimi"></select>
       <button id="refreshModels" class="secondary" title="Обновить список моделей с API">⟳</button>
+      <span class="spacer"></span>
+      <button id="authBtn" class="secondary" title="Аккаунт Kimi: вход, статус, выход">…</button>
     </div>
     <div id="hint"></div>
     <div id="usage"></div>
@@ -875,6 +891,7 @@ function getHtml(webview: vscode.Webview): string {
   var modeEl = document.getElementById('mode');
   var modelEl = document.getElementById('model');
   var refreshModelsBtn = document.getElementById('refreshModels');
+  var authBtn = document.getElementById('authBtn');
   var hintEl = document.getElementById('hint');
   var usageEl = document.getElementById('usage');
 
@@ -906,6 +923,23 @@ function getHtml(webview: vscode.Webview): string {
   refreshModelsBtn.addEventListener('click', function () {
     vscode.postMessage({ type: 'refreshModels' });
   });
+
+  authBtn.addEventListener('click', function () {
+    vscode.postMessage({ type: 'authClick' });
+  });
+
+  function setAuthState(st) {
+    if (!st || st.kind === 'none') {
+      authBtn.textContent = '🔒 Войти';
+      authBtn.style.color = 'var(--vscode-errorForeground)';
+    } else if (st.kind === 'oauth') {
+      authBtn.textContent = '✓ ' + (st.label || 'Kimi');
+      authBtn.style.color = 'var(--vscode-testing-iconPassed)';
+    } else {
+      authBtn.textContent = '✓ API-ключ';
+      authBtn.style.color = 'var(--vscode-testing-iconPassed)';
+    }
+  }
 
   function setModelList(models, current) {
     modelEl.innerHTML = '';
@@ -1192,6 +1226,9 @@ function getHtml(webview: vscode.Webview): string {
         break;
       case 'model':
         modelEl.value = m.model;
+        break;
+      case 'auth':
+        setAuthState(m.state);
         break;
     }
   });

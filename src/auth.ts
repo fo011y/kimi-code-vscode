@@ -207,6 +207,21 @@ export async function hasOAuthLogin(context: vscode.ExtensionContext): Promise<b
   return (await context.secrets.get(K_REFRESH)) !== undefined;
 }
 
+export type AuthState =
+  | { kind: 'oauth'; label: string }
+  | { kind: 'apiKey' }
+  | { kind: 'none' };
+
+/** Текущее состояние аккаунта для UI (без сетевых запросов). */
+export async function getAuthState(context: vscode.ExtensionContext): Promise<AuthState> {
+  if (await hasOAuthLogin(context)) {
+    const region = await context.secrets.get(K_REGION);
+    return { kind: 'oauth', label: region === 'global' ? 'Kimi.ai' : 'Kimi.com' };
+  }
+  if ((await context.secrets.get('kimi.apiKey')) !== undefined) return { kind: 'apiKey' };
+  return { kind: 'none' };
+}
+
 /**
  * Действующий access token: обновляет по refresh_token, если истекает
  * (запас 60 секунд). Возвращает undefined, если логина нет или refresh

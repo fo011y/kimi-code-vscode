@@ -10,6 +10,7 @@ import {
   PermissionMode,
 } from './config';
 import { ApiConfig, ChatMessage, FALLBACK_MODELS, listModels, streamChat } from './api';
+import { getAuthState } from './auth';
 
 function selectedCode(): { editor: vscode.TextEditor; text: string; rel: string } | undefined {
   const editor = vscode.window.activeTextEditor;
@@ -98,10 +99,33 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.window.registerWebviewViewProvider(ChatViewProvider.viewId, provider)
   );
 
+  // кнопка Kimi в статус-баре (справа внизу) со статусом аккаунта
+  const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+  statusBar.command = 'kimi.accountMenu';
+  context.subscriptions.push(statusBar);
+
+  const updateStatusBar = async (): Promise<void> => {
+    const st = await getAuthState(context);
+    if (st.kind === 'none') {
+      statusBar.text = '$(sparkle) Kimi: Войти';
+      statusBar.tooltip = 'Kimi: нажмите, чтобы войти в аккаунт';
+      statusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
+    } else {
+      statusBar.text = '$(sparkle) Kimi';
+      statusBar.tooltip = `Kimi: ${st.kind === 'oauth' ? `аккаунт ${st.label}` : 'API-ключ'} · модель ${getModel()}`;
+      statusBar.backgroundColor = undefined;
+    }
+    statusBar.show();
+  };
+  void updateStatusBar();
+
   // синхронизация флагов настроек с веб-панелью
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
-      if (e.affectsConfiguration('kimi')) provider.postSettings();
+      if (e.affectsConfiguration('kimi')) {
+        provider.postSettings();
+        void updateStatusBar();
+      }
     })
   );
 
@@ -111,12 +135,42 @@ export function activate(context: vscode.ExtensionContext): void {
   cmd('kimi.setApiKey', async () => {
     await ensureApiKey(context, true);
     vscode.window.showInformationMessage('API-ключ Kimi сохранён.');
+    void provider.postAuthState();
+    void updateStatusBar();
   });
 
   cmd('kimi.login', async () => {
     const { loginInteractive } = await import('./auth');
     const ok = await loginInteractive(context);
-    if (ok) provider.postSettings();
+    if (ok) {
+      provider.postSettings();
+      void provider.postAuthState();
+      void updateStatusBar();
+    }
+  });
+
+  cmd('kimi.accountMenu', async () => {
+    const st = await getAuthState(context);
+    if (st.kind === 'none') {
+      await vscode.commands.executeCommand('kimi.login');
+      return;
+    }
+    const pick = await vscode.window.showQuickPick(
+      [
+        { label: '$(comment-discussion) Открыть чат', id: 'chat' },
+        { label: '$(symbol-misc) Сменить модель', id: 'model' },
+        { label: '$(shield) Режим автономности', id: 'mode' },
+        { label: '$(refresh) Сменить способ входа', id: 'relogin' },
+        { label: '$(sign-out) Выйти из аккаунта', id: 'logout' },
+      ],
+      { title: `Kimi: ${st.kind === 'oauth' ? `аккаунт ${st.label}` : 'API-ключ'}` }
+    );
+    if (!pick) return;
+    if (pick.id === 'chat') await vscode.commands.executeCommand('kimi.focus');
+    if (pick.id === 'model') await vscode.commands.executeCommand('kimi.setModel');
+    if (pick.id === 'mode') await vscode.commands.executeCommand('kimi.setMode');
+    if (pick.id === 'relogin') await vscode.commands.executeCommand('kimi.login');
+    if (pick.id === 'logout') await vscode.commands.executeCommand('kimi.logout');
   });
 
   cmd('kimi.logout', async () => {
@@ -140,6 +194,8 @@ export function activate(context: vscode.ExtensionContext): void {
     if (what.target === 'apiKey' || what.target === 'all') await context.secrets.delete('kimi.apiKey');
     vscode.window.showInformationMessage('Kimi: вы вышли из аккаунта.');
     provider.postSettings();
+    void provider.postAuthState();
+    void updateStatusBar();
   });
 
   cmd('kimi.newChat', () => provider.newChat());
