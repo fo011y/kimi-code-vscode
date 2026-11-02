@@ -271,8 +271,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       case 'refreshModels':
         await this.refreshModels();
         break;
-      case 'authClick':
-        await vscode.commands.executeCommand('kimi.accountMenu');
+      case 'authAction':
+        if (m.action === 'relogin') await vscode.commands.executeCommand('kimi.login');
+        else if (m.action === 'rekey') await vscode.commands.executeCommand('kimi.setApiKey');
+        else if (m.action === 'logoutOAuth') await vscode.commands.executeCommand('kimi.logoutDirect', 'oauth');
+        else if (m.action === 'clearKey') await vscode.commands.executeCommand('kimi.logoutDirect', 'apiKey');
         break;
       case 'newSession':
         this.createSession();
@@ -810,6 +813,26 @@ function getHtml(webview: vscode.Webview): string {
   .toolgroup .tg-list { display: block; }
   .toolgroup.collapsed .tg-list { display: none; }
   .toolgroup.collapsed .tg-head { opacity: 0.7; }
+  .authwrap { position: relative; }
+  .authmenu {
+    position: absolute; bottom: 30px; right: 0; z-index: 20; min-width: 220px;
+    background: var(--vscode-menu-background, var(--vscode-editor-background));
+    color: var(--vscode-menu-foreground, var(--vscode-editor-foreground));
+    border: 1px solid var(--vscode-menu-border, #454545);
+    border-radius: 6px; padding: 4px 0;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+  }
+  .authmenu .mi {
+    padding: 6px 14px; cursor: pointer; font-size: 0.92em;
+    white-space: nowrap; user-select: none;
+  }
+  .authmenu .mi:hover {
+    background: var(--vscode-menu-selectionBackground, var(--vscode-list-hoverBackground));
+    color: var(--vscode-menu-selectionForeground, inherit);
+  }
+  .authmenu .mi.head { opacity: 0.55; cursor: default; }
+  .authmenu .mi.head:hover { background: transparent; }
+  .authmenu .sep { height: 1px; margin: 4px 0; background: var(--vscode-menu-border, #454545); }
   .review {
     margin: 8px 0; padding: 8px; border-radius: 6px;
     border: 1px solid var(--vscode-textLink-foreground);
@@ -883,7 +906,10 @@ function getHtml(webview: vscode.Webview): string {
       <select id="model" title="Модель Kimi"></select>
       <button id="refreshModels" class="secondary" title="Обновить список моделей с API">⟳</button>
       <span class="spacer"></span>
-      <button id="authBtn" class="secondary" title="Аккаунт Kimi: вход, статус, выход">…</button>
+      <span class="authwrap">
+        <button id="authBtn" class="secondary" title="Аккаунт Kimi: вход, статус, выход">…</button>
+        <div id="authMenu" class="authmenu" style="display:none"></div>
+      </span>
     </div>
     <div id="hint"></div>
     <div id="usage"></div>
@@ -933,16 +959,78 @@ function getHtml(webview: vscode.Webview): string {
     vscode.postMessage({ type: 'refreshModels' });
   });
 
-  authBtn.addEventListener('click', function () {
-    vscode.postMessage({ type: 'authClick' });
+  // ---------- меню аккаунта (всплывающее, внутри панели) ----------
+  var authMenu = document.getElementById('authMenu');
+  var currentAuth = { kind: 'none' };
+
+  function closeAuthMenu() {
+    authMenu.style.display = 'none';
+  }
+
+  function authMenuItem(text, action) {
+    var d = document.createElement('div');
+    d.className = 'mi';
+    d.textContent = text;
+    d.addEventListener('click', function (e) {
+      e.stopPropagation();
+      closeAuthMenu();
+      vscode.postMessage({ type: 'authAction', action: action });
+    });
+    return d;
+  }
+
+  function renderAuthMenu() {
+    authMenu.innerHTML = '';
+    if (currentAuth.kind === 'oauth') {
+      var head = document.createElement('div');
+      head.className = 'mi head';
+      head.textContent = 'Аккаунт: ' + (currentAuth.label || 'Kimi');
+      authMenu.appendChild(head);
+      var sep = document.createElement('div');
+      sep.className = 'sep';
+      authMenu.appendChild(sep);
+      authMenu.appendChild(authMenuItem('🌐 Сменить способ входа', 'relogin'));
+      authMenu.appendChild(authMenuItem('🚪 Выйти из аккаунта', 'logoutOAuth'));
+    } else if (currentAuth.kind === 'apiKey') {
+      var head2 = document.createElement('div');
+      head2.className = 'mi head';
+      head2.textContent = 'Вход по API-ключу';
+      authMenu.appendChild(head2);
+      var sep2 = document.createElement('div');
+      sep2.className = 'sep';
+      authMenu.appendChild(sep2);
+      authMenu.appendChild(authMenuItem('🔑 Сменить API-ключ', 'rekey'));
+      authMenu.appendChild(authMenuItem('🌐 Войти через сайт (OAuth)', 'relogin'));
+      authMenu.appendChild(authMenuItem('🚪 Удалить API-ключ', 'clearKey'));
+    } else {
+      authMenu.appendChild(authMenuItem('🌐 Войти через сайт (OAuth)', 'relogin'));
+      authMenu.appendChild(authMenuItem('🔑 Ввести API-ключ', 'rekey'));
+    }
+  }
+
+  authBtn.addEventListener('click', function (e) {
+    e.stopPropagation();
+    if (authMenu.style.display === 'none') {
+      renderAuthMenu();
+      authMenu.style.display = 'block';
+    } else {
+      closeAuthMenu();
+    }
+  });
+
+  document.addEventListener('click', function (e) {
+    if (authMenu.style.display !== 'none' && !authMenu.contains(e.target) && e.target !== authBtn) {
+      closeAuthMenu();
+    }
   });
 
   function setAuthState(st) {
-    if (!st || st.kind === 'none') {
+    currentAuth = st && st.kind ? st : { kind: 'none' };
+    if (currentAuth.kind === 'none') {
       authBtn.textContent = '🔒 Войти';
       authBtn.style.color = 'var(--vscode-errorForeground)';
-    } else if (st.kind === 'oauth') {
-      authBtn.textContent = '✓ ' + (st.label || 'Kimi');
+    } else if (currentAuth.kind === 'oauth') {
+      authBtn.textContent = '✓ ' + (currentAuth.label || 'Kimi');
       authBtn.style.color = 'var(--vscode-testing-iconPassed)';
     } else {
       authBtn.textContent = '✓ API-ключ';

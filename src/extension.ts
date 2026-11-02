@@ -149,6 +149,16 @@ export function activate(context: vscode.ExtensionContext): void {
     }
   });
 
+  // внутренняя команда: прямой выход без QuickPick (из меню веб-панели)
+  cmd('kimi.logoutDirect', async (target?: string) => {
+    const { logoutOAuth } = await import('./auth');
+    if (target === 'oauth' || target === 'all') await logoutOAuth(context);
+    if (target === 'apiKey' || target === 'all') await context.secrets.delete('kimi.apiKey');
+    vscode.window.showInformationMessage('Kimi: вы вышли из аккаунта.');
+    void provider.postAuthState();
+    void updateStatusBar();
+  });
+
   cmd('kimi.accountMenu', async () => {
     const st = await getAuthState(context);
     if (st.kind === 'none') {
