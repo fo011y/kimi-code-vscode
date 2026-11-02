@@ -1,5 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
-  <circle cx="12" cy="12" r="10" fill="#1a6dff"/>
-  <path d="M7 8.5 L10.5 12 L7 15.5" stroke="#fff" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-  <line x1="12" y1="15.5" x2="17" y2="15.5" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/>
+  <defs>
+    <mask id="kimiMoon">
+      <rect width="24" height="24" fill="#fff"/>
+      <circle cx="16.2" cy="8.6" r="6.8" fill="#000"/>
+    </mask>
+  </defs>
+  <circle cx="11.5" cy="12.5" r="9.9" fill="#7c3aed" mask="url(#kimiMoon)"/>
+  <path fill="#f5c518" d="M16.5 12.6l1.1 1.9 1.9 1.1-1.9 1.1-1.1 1.9-1.1-1.9-1.9-1.1 1.9-1.1z"/>
+  <path fill="#ffdc64" d="M7.7 4.9l.5.9.9.5-.9.5-.5.9-.5-.9-.9-.5.9-.5z"/>
 </svg>
