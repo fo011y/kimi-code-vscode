@@ -2,7 +2,7 @@
   "name": "kimi-code",
   "displayName": "Kimi Code — AI-ассистент",
   "description": "Чат с Kimi (Moonshot AI) прямо в VS Code: чат-панель, действия с выделенным кодом, агентский режим с правками файлов и запуском команд.",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "publisher": "kimi",
   "license": "MIT",
   "engines": {
@@ -37,11 +37,21 @@
       { "command": "kimi.newChat", "title": "Kimi: Новый диалог" },
       { "command": "kimi.setMode", "title": "Kimi: Выбрать режим автономности" },
       { "command": "kimi.setModel", "title": "Kimi: Выбрать модель" },
+      { "command": "kimi.reviewChanges", "title": "Kimi: Изменения за сессию (откат)" },
+      { "command": "kimi.sendSelectionToChat", "title": "Kimi: Отправить выделенное в чат" },
       { "command": "kimi.explainSelection", "title": "Kimi: Объяснить выделенное" },
       { "command": "kimi.fixSelection", "title": "Kimi: Исправить выделенное" },
       { "command": "kimi.refactorSelection", "title": "Kimi: Отрефакторить выделенное" },
       { "command": "kimi.addTests", "title": "Kimi: Написать тесты для выделенного" },
       { "command": "kimi.editSelection", "title": "Kimi: Изменить выделенное по инструкции" }
+    ],
+    "keybindings": [
+      {
+        "command": "kimi.sendSelectionToChat",
+        "key": "ctrl+alt+k",
+        "mac": "cmd+alt+k",
+        "when": "editorHasSelection"
+      }
     ],
     "menus": {
       "editor/context": [
@@ -82,8 +92,9 @@
         },
         "kimi.permissionMode": {
           "type": "string",
-          "enum": ["ask", "autoEdit", "fullAuto"],
+          "enum": ["plan", "ask", "autoEdit", "fullAuto"],
           "enumDescriptions": [
+            "Режим планирования: Kimi только читает проект и составляет план, ничего не меняя",
             "Каждая правка файла и каждая команда требуют подтверждения",
             "Файлы изменяются без вопросов, команды в терминале — с подтверждением",
             "Всё без подтверждений: Kimi сам правит файлы и запускает команды"

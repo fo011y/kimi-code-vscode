@@ -105,17 +105,19 @@ export function activate(context: vscode.ExtensionContext): void {
   cmd('kimi.newChat', () => provider.newChat());
 
   cmd('kimi.setMode', async () => {
-    const modes: PermissionMode[] = ['ask', 'autoEdit', 'fullAuto'];
+    const modes: PermissionMode[] = ['plan', 'ask', 'autoEdit', 'fullAuto'];
     const current = getPermissionMode();
     const pick = await vscode.window.showQuickPick(
       modes.map((m) => ({
         label: m === current ? `$(check) ${PERMISSION_MODE_LABELS[m]}` : PERMISSION_MODE_LABELS[m],
         description:
-          m === 'ask'
-            ? 'каждая правка и команда — с подтверждением'
-            : m === 'autoEdit'
-              ? 'файлы — без вопросов, команды — с подтверждением'
-              : '⚠️ всё без вопросов, Kimi работает самостоятельно',
+          m === 'plan'
+            ? 'Kimi только читает проект и составляет план'
+            : m === 'ask'
+              ? 'каждая правка и команда — с подтверждением'
+              : m === 'autoEdit'
+                ? 'файлы — без вопросов, команды — с подтверждением'
+                : '⚠️ всё без вопросов, Kimi работает самостоятельно',
         mode: m,
       })),
       { title: 'Kimi: режим автономности' }
@@ -165,6 +167,10 @@ export function activate(context: vscode.ExtensionContext): void {
   });
 
   cmd('kimi.editSelection', () => editSelection(context));
+
+  cmd('kimi.reviewChanges', () => provider.reviewChanges());
+
+  cmd('kimi.sendSelectionToChat', () => provider.insertSelectionToInput());
 }
 
 export function deactivate(): void {

@@ -1,10 +1,11 @@
-import { ApiConfig, ChatMessage, streamChat } from './api';
+import { ApiConfig, ChatMessage, streamChat, TokenUsage } from './api';
 import { executeTool, toolDefinitions } from './tools';
-import { getMaxAgentSteps } from './config';
+import { getMaxAgentSteps, isPlanMode } from './config';
 
 export interface AgentHooks {
   onToken(text: string): void;
   onTool(name: string, status: 'running' | 'done' | 'error', detail?: string): void;
+  onUsage?(usage: TokenUsage): void;
   signal?: AbortSignal;
 }
 
@@ -17,7 +18,8 @@ export async function runAgentLoop(
   messages: ChatMessage[],
   hooks: AgentHooks
 ): Promise<void> {
-  const tools = toolDefinitions();
+  const plan = isPlanMode();
+  const tools = toolDefinitions(plan); // в plan-режиме — только чтение
   const maxSteps = getMaxAgentSteps();
 
   for (let step = 0; step < maxSteps; step++) {
@@ -32,6 +34,7 @@ export async function runAgentLoop(
       onToken: hooks.onToken,
       signal: hooks.signal,
     });
+    if (res.usage) hooks.onUsage?.(res.usage);
 
     const assistantMsg: ChatMessage = { role: 'assistant' };
     if (res.content) assistantMsg.content = res.content;

@@ -39,10 +39,17 @@ export interface ApiConfig {
   temperature: number;
 }
 
+export interface TokenUsage {
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+}
+
 export interface ChatResult {
   content: string;
   toolCalls: ToolCall[];
   finishReason: string;
+  usage?: TokenUsage;
 }
 
 /** Встроенный список моделей на случай, если API недоступен. */
@@ -87,6 +94,7 @@ export async function streamChat(
     temperature: cfg.temperature,
     max_tokens: cfg.maxTokens,
     stream: true,
+    stream_options: { include_usage: true },
   };
   if (opts.tools && opts.tools.length > 0) {
     body.tools = opts.tools;
@@ -116,6 +124,7 @@ export async function streamChat(
   let buf = '';
   let content = '';
   let finishReason = '';
+  let usage: TokenUsage | undefined;
   const toolCalls: ToolCall[] = [];
 
   const handleLine = (line: string) => {
@@ -131,6 +140,13 @@ export async function streamChat(
     }
     if (json.error) {
       throw new Error(`Moonshot API: ${json.error.message ?? JSON.stringify(json.error)}`);
+    }
+    if (json.usage && typeof json.usage.total_tokens === 'number') {
+      usage = {
+        prompt_tokens: json.usage.prompt_tokens ?? 0,
+        completion_tokens: json.usage.completion_tokens ?? 0,
+        total_tokens: json.usage.total_tokens,
+      };
     }
     const choice = json.choices?.[0];
     if (!choice) return;
@@ -161,5 +177,5 @@ export async function streamChat(
   }
   if (buf.trim()) handleLine(buf);
 
-  return { content, toolCalls: toolCalls.filter(Boolean), finishReason };
+  return { content, toolCalls: toolCalls.filter(Boolean), finishReason, usage };
 }

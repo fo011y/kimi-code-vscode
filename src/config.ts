@@ -26,9 +26,10 @@ export async function setModel(model: string): Promise<void> {
 }
 
 /** Режим автономности агента. */
-export type PermissionMode = 'ask' | 'autoEdit' | 'fullAuto';
+export type PermissionMode = 'plan' | 'ask' | 'autoEdit' | 'fullAuto';
 
 export const PERMISSION_MODE_LABELS: Record<PermissionMode, string> = {
+  plan: 'Планирование (только чтение)',
   ask: 'Спросить всегда',
   autoEdit: 'Авто-правки (команды — с подтверждением)',
   fullAuto: 'Полная автономность',
@@ -37,10 +38,14 @@ export const PERMISSION_MODE_LABELS: Record<PermissionMode, string> = {
 export function getPermissionMode(): PermissionMode {
   const c = vscode.workspace.getConfiguration('kimi');
   const m = c.get<string>('permissionMode', 'ask');
-  if (m === 'ask' || m === 'autoEdit' || m === 'fullAuto') return m;
+  if (m === 'plan' || m === 'ask' || m === 'autoEdit' || m === 'fullAuto') return m;
   // обратная совместимость со старой настройкой autoApprove
   if (c.get<boolean>('autoApprove', false)) return 'fullAuto';
   return 'ask';
+}
+
+export function isPlanMode(): boolean {
+  return getPermissionMode() === 'plan';
 }
 
 export async function setPermissionMode(mode: PermissionMode): Promise<void> {

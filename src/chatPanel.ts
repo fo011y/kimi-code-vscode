@@ -1,29 +1,50 @@
 import * as vscode from 'vscode';
-import { ApiConfig, ChatMessage, FALLBACK_MODELS, listModels, streamChat } from './api';
+import { ApiConfig, ChatMessage, FALLBACK_MODELS, listModels, streamChat, TokenUsage } from './api';
 import { runAgentLoop } from './agent';
-import { autoDeployIfEnabled, autoPushIfEnabled, consumeChangesMade } from './tools';
+import { CheckpointEntry, CheckpointStore } from './checkpoints';
+import { autoDeployIfEnabled, autoPushIfEnabled, consumeChangesMade, setSnapshotHook } from './tools';
 import {
   ensureApiKey,
   getApiConfig,
   getModel,
   getPermissionMode,
+  isPlanMode,
   setModel,
   setPermissionMode,
   PermissionMode,
 } from './config';
 
-function systemPrompt(workspaceRoot?: string): string {
-  return [
+const HISTORY_KEY = 'kimi.chatHistory';
+
+const HELP_TEXT = [
+  '/clear — новый диалог (сброс контекста)',
+  '/compact — сжать историю диалога в сводку',
+  '/review — изменения за сессию: diff и откат (checkpoints)',
+  '/plan, /ask, /auto, /fullauto — переключить режим автономности',
+  '@путь/к/файлу — прикрепить файл к вопросу',
+].join('\n');
+
+function systemPrompt(workspaceRoot: string | undefined, plan: boolean): string {
+  const lines = [
     'Ты — Kimi, AI-ассистент программиста, встроенный в VS Code.',
     workspaceRoot ? `Рабочая папка проекта: ${workspaceRoot}` : 'Папка проекта не открыта.',
     'Всегда отвечай на языке пользователя.',
     'Код оформляй в markdown-блоках с указанием языка.',
     'В агентском режиме: сначала изучи нужные файлы инструментами read_file / list_files / search_in_files,',
     'затем вносите изменения через write_file. Не выполняй разрушительных команд.',
+    'После правок проверяй проект инструментом get_diagnostics и исправляй появившиеся ошибки.',
     'Когда задача полностью выполнена и пользователь просил сохранить результат на GitHub — вызывай git_push с кратким сообщением коммита.',
     'Если пользователь просил задеплоить/опубликовать проект — после завершения правок вызывай deploy.',
     'Будь краток в пояснениях, но полон в коде.',
-  ].join('\n');
+  ];
+  if (plan) {
+    lines.push(
+      'РЕЖИМ ПЛАНИРОВАНИЯ: тебе доступны ТОЛЬКО инструменты чтения. Ничего не изменяй и не запускай. ' +
+        'Изучи проект и составь подробный пошаговый план: какие файлы менять, что именно делать, в каком порядке. ' +
+        'План выведи в конце ответа нумерованным списком.'
+    );
+  }
+  return lines.join('\n');
 }
 
 export class ChatViewProvider implements vscode.WebviewViewProvider {
@@ -34,8 +55,22 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   private history: ChatMessage[] = [];
   private abort?: AbortController;
   private busy = false;
+  private checkpoints: CheckpointStore;
+  private sessionTokens = 0;
 
-  constructor(private readonly context: vscode.ExtensionContext) {}
+  constructor(private readonly context: vscode.ExtensionContext) {
+    this.history = context.workspaceState.get<ChatMessage[]>(HISTORY_KEY, []);
+    this.checkpoints = new CheckpointStore(context.globalStorageUri.fsPath, String(Date.now()));
+    setSnapshotHook((abs) => {
+      const r = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      if (!r) return;
+      try {
+        this.checkpoints.snapshot(abs, r);
+      } catch {
+        // снимок не критичен
+      }
+    });
+  }
 
   resolveWebviewView(view: vscode.WebviewView): void {
     this.view = view;
@@ -50,6 +85,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       else if (m?.type === 'refreshModels') void this.refreshModels();
     });
     this.post({ type: 'mode', mode: getPermissionMode() });
+    if (this.history.length > 0) {
+      this.post({
+        type: 'history',
+        items: this.history.map((h) => ({ role: h.role, content: h.content ?? '' })),
+      });
+    }
     void this.refreshModels();
     const queued = this.pending.splice(0);
     for (const item of queued) void this.handleAsk(item.text, item.agent);
@@ -80,7 +121,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
   /** Переключение режима автономности из чата или команды. */
   async applyMode(mode: PermissionMode): Promise<void> {
-    if (mode !== 'ask' && mode !== 'autoEdit' && mode !== 'fullAuto') return;
+    if (mode !== 'plan' && mode !== 'ask' && mode !== 'autoEdit' && mode !== 'fullAuto') return;
     await setPermissionMode(mode);
     this.post({ type: 'mode', mode });
     if (mode === 'fullAuto') {
@@ -92,6 +133,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
   newChat(): void {
     this.history = [];
+    this.saveHistory();
+    // новая сессия — новые снимки
+    this.checkpoints = new CheckpointStore(this.context.globalStorageUri.fsPath, String(Date.now()));
     this.view?.webview.postMessage({ type: 'clear' });
   }
 
@@ -105,12 +149,111 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     await this.handleAsk(text, agent);
   }
 
+  /** Горячая клавиша: вставить ссылку на выделенный файл в поле ввода чата. */
+  async insertSelectionToInput(): Promise<void> {
+    const ed = vscode.window.activeTextEditor;
+    if (!ed || ed.selection.isEmpty) {
+      vscode.window.showWarningMessage('Сначала выделите код в редакторе.');
+      return;
+    }
+    const rel = vscode.workspace.asRelativePath(ed.document.uri);
+    if (!this.view) {
+      await vscode.commands.executeCommand(`${ChatViewProvider.viewId}.focus`);
+    }
+    this.post({ type: 'insertText', text: `@${rel} ` });
+  }
+
+  /** Review-панель: все изменённые за сессию файлы с diff и откатом. */
+  async reviewChanges(): Promise<void> {
+    const rootDir = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!rootDir) {
+      vscode.window.showWarningMessage('Откройте папку проекта.');
+      return;
+    }
+    const entries = this.checkpoints.list();
+    if (entries.length === 0) {
+      vscode.window.showInformationMessage('За эту сессию Kimi ещё не менял файлы.');
+      return;
+    }
+
+    const pick = await vscode.window.showQuickPick(
+      [
+        {
+          label: '$(discard) Откатить ВСЕ изменения сессии',
+          description: `${entries.length} файл(ов)`,
+          entry: undefined as CheckpointEntry | undefined,
+        },
+        { label: '', kind: vscode.QuickPickItemKind.Separator, entry: undefined },
+        ...entries.map((e) => ({
+          label: `$(file) ${e.file}`,
+          description: e.existed ? 'изменён' : 'создан',
+          entry: e as CheckpointEntry | undefined,
+        })),
+      ],
+      { title: 'Kimi: изменения за сессию (checkpoints)' }
+    );
+    if (!pick) return;
+
+    if (!pick.entry) {
+      const ok = await vscode.window.showWarningMessage(
+        `Откатить все изменения сессии (${entries.length} файл(ов))?`,
+        { modal: true },
+        'Откатить всё'
+      );
+      if (ok === 'Откатить всё') {
+        const n = await this.checkpoints.revertAll(rootDir);
+        vscode.window.showInformationMessage(`Kimi: откачено файлов: ${n}.`);
+      }
+      return;
+    }
+
+    const entry = pick.entry;
+    await this.checkpoints.showDiff(entry, rootDir);
+    const action = await vscode.window.showInformationMessage(
+      `Откатить «${entry.file}» к состоянию до правок Kimi?`,
+      { modal: true },
+      'Откатить'
+    );
+    if (action === 'Откатить') {
+      await this.checkpoints.revert(entry, rootDir);
+      vscode.window.showInformationMessage(`Kimi: файл откачен: ${entry.file}`);
+    }
+  }
+
   private post(m: unknown): void {
     void this.view?.webview.postMessage(m);
   }
 
-  private buildUserContent(userText: string): string {
+  private saveHistory(): void {
+    void this.context.workspaceState.update(HISTORY_KEY, this.history.slice(-20));
+  }
+
+  /** Сборка полного контекста вопроса: @файлы, выделение, диагностика IDE. */
+  private async buildUserContent(userText: string): Promise<string> {
     let full = userText;
+
+    // @-упоминания файлов
+    const mentions = new Set<string>();
+    const re = /(?:^|\s)@([^\s@]+)/g;
+    let mm: RegExpExecArray | null;
+    while ((mm = re.exec(userText)) !== null) mentions.add(mm[1]);
+    let attached = 0;
+    for (const token of mentions) {
+      if (attached >= 4) break;
+      try {
+        let files = await vscode.workspace.findFiles(token, '**/node_modules/**', 1);
+        if (files.length === 0) files = await vscode.workspace.findFiles(`**/${token}`, '**/node_modules/**', 1);
+        if (files.length === 0) continue;
+        const doc = await vscode.workspace.openTextDocument(files[0]);
+        const rel = vscode.workspace.asRelativePath(files[0]);
+        full += `\n\nФайл \`${rel}\` (прикреплён через @):\n\`\`\`${doc.languageId}\n${doc.getText().slice(0, 6000)}\n\`\`\``;
+        attached++;
+      } catch {
+        // файл не найден — пропускаем
+      }
+    }
+
+    // выделенный код
     const ed = vscode.window.activeTextEditor;
     if (ed && !ed.selection.isEmpty) {
       const sel = ed.document.getText(ed.selection);
@@ -119,11 +262,102 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         full += `\n\nВыделенный код из \`${rel}\`:\n\`\`\`${ed.document.languageId}\n${sel.slice(0, 8000)}\n\`\`\``;
       }
     }
+
+    // диагностика активного файла (ошибки/предупреждения линтера)
+    if (ed) {
+      const diags = vscode.languages
+        .getDiagnostics(ed.document.uri)
+        .filter((d) => d.severity <= vscode.DiagnosticSeverity.Warning)
+        .slice(0, 5);
+      if (diags.length > 0) {
+        const rel = vscode.workspace.asRelativePath(ed.document.uri);
+        const lines = diags.map(
+          (d) =>
+            `- строка ${d.range.start.line + 1}: [${d.severity === vscode.DiagnosticSeverity.Error ? 'ERROR' : 'WARN'}] ${d.message.split('\n')[0].slice(0, 200)}`
+        );
+        full += `\n\nДиагностика IDE для \`${rel}\`:\n${lines.join('\n')}`;
+      }
+    }
+
     return full;
   }
 
+  /** Обработка слэш-команд. Возвращает true, если текст был командой. */
+  private async handleSlash(text: string): Promise<boolean> {
+    const cmd = text.split(/\s/)[0].toLowerCase();
+    switch (cmd) {
+      case '/clear':
+        this.newChat();
+        return true;
+      case '/review':
+        await this.reviewChanges();
+        return true;
+      case '/compact':
+        await this.compactHistory();
+        return true;
+      case '/plan':
+        await this.applyMode('plan');
+        return true;
+      case '/ask':
+        await this.applyMode('ask');
+        return true;
+      case '/auto':
+        await this.applyMode('autoEdit');
+        return true;
+      case '/fullauto':
+        await this.applyMode('fullAuto');
+        return true;
+      case '/help':
+        this.post({ type: 'info', text: HELP_TEXT });
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  /** /compact: сжать историю диалога в сводку через модель. */
+  private async compactHistory(): Promise<void> {
+    if (this.history.length === 0) {
+      this.post({ type: 'info', text: 'История пуста — сжимать нечего.' });
+      return;
+    }
+    const apiKey = await ensureApiKey(this.context);
+    if (!apiKey) return;
+    const cfg: ApiConfig = { ...getApiConfig(), apiKey };
+    this.post({ type: 'info', text: '🗜 Сжимаю историю диалога…' });
+    try {
+      const transcript = this.history
+        .map((m) => `${m.role}: ${m.content ?? ''}`)
+        .join('\n\n')
+        .slice(0, 24000);
+      const res = await streamChat(cfg, [
+        {
+          role: 'system',
+          content:
+            'Сожми диалог программиста с AI-ассистентом в краткую сводку (10–15 пунктов): цели, принятые решения, изменённые файлы, важный технический контекст. Пиши на языке диалога.',
+        },
+        { role: 'user', content: transcript },
+      ]);
+      this.history = [
+        { role: 'user', content: `Сводка предыдущего диалога:\n${res.content}` },
+        { role: 'assistant', content: 'Принято. Продолжаем с учётом этой сводки.' },
+      ];
+      this.saveHistory();
+      this.post({
+        type: 'info',
+        text: `🗜 История сжата в сводку (${res.usage?.total_tokens ?? '?'} токенов).`,
+      });
+    } catch (e) {
+      this.post({ type: 'error', text: e instanceof Error ? e.message : String(e) });
+    }
+  }
+
   private async handleAsk(userText: string, agent: boolean): Promise<void> {
-    if (!userText.trim() || this.busy) return;
+    const trimmed = userText.trim();
+    if (!trimmed || this.busy) return;
+
+    if (trimmed.startsWith('/') && (await this.handleSlash(trimmed))) return;
+
     this.busy = true;
     this.abort = new AbortController();
 
@@ -139,23 +373,31 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       const cfg: ApiConfig = { ...getApiConfig(), apiKey };
 
       const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-      const userContent = this.buildUserContent(userText);
+      const plan = isPlanMode();
+      const userContent = await this.buildUserContent(userText);
       const messages: ChatMessage[] = [
-        { role: 'system', content: systemPrompt(root) },
+        { role: 'system', content: systemPrompt(root, plan) },
         ...this.history.slice(-20),
         { role: 'user', content: userContent },
       ];
 
       let acc = '';
+      let requestTokens = 0;
       const onToken = (t: string) => {
         acc += t;
         this.post({ type: 'delta', text: t });
+      };
+      const onUsage = (u: TokenUsage) => {
+        requestTokens += u.total_tokens;
+        this.sessionTokens += u.total_tokens;
+        this.post({ type: 'usage', request: requestTokens, session: this.sessionTokens });
       };
 
       if (agent) {
         consumeChangesMade(); // сбросить флаг изменений от прошлой задачи
         await runAgentLoop(cfg, messages, {
           onToken,
+          onUsage,
           onTool: (name, status, detail) => this.post({ type: 'tool', name, status, detail }),
           signal: this.abort.signal,
         });
@@ -182,13 +424,15 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           }
         }
       } else {
-        await streamChat(cfg, messages, { onToken, signal: this.abort.signal });
+        const res = await streamChat(cfg, messages, { onToken, signal: this.abort.signal });
+        if (res.usage) onUsage(res.usage);
       }
 
       this.history.push(
         { role: 'user', content: userContent },
         { role: 'assistant', content: acc }
       );
+      this.saveHistory();
       this.post({ type: 'done' });
     } catch (e: any) {
       if (e?.name === 'AbortError') {
@@ -258,6 +502,7 @@ function getHtml(webview: vscode.Webview): string {
   .tool {
     font-size: 0.85em; opacity: 0.85; margin: 4px 0 4px 8px;
     padding: 3px 8px; border-left: 2px solid var(--vscode-textLink-foreground);
+    white-space: pre-wrap;
   }
   .tool.error { border-left-color: var(--vscode-errorForeground); }
   #inputArea {
@@ -294,15 +539,17 @@ function getHtml(webview: vscode.Webview): string {
     color: var(--vscode-button-secondaryForeground);
   }
   #hint { font-size: 0.8em; opacity: 0.6; margin-top: 4px; }
+  #usage { font-size: 0.75em; opacity: 0.55; margin-top: 2px; min-height: 1em; }
 </style>
 </head>
 <body>
   <div id="messages"></div>
   <div id="inputArea">
-    <textarea id="input" placeholder="Спросите Kimi… (Enter — отправить, Shift+Enter — новая строка)"></textarea>
+    <textarea id="input" placeholder="Спросите Kimi… (Enter — отправить, @файл — прикрепить, /help — команды)"></textarea>
     <div class="row">
       <label><input type="checkbox" id="agent" checked> Агент</label>
       <select id="mode" title="Режим автономности">
+        <option value="plan">Планирование</option>
         <option value="ask">Спросить всегда</option>
         <option value="autoEdit">Авто-правки</option>
         <option value="fullAuto">Полная автономность</option>
@@ -317,6 +564,7 @@ function getHtml(webview: vscode.Webview): string {
       <button id="refreshModels" class="secondary" title="Обновить список моделей с API">⟳</button>
     </div>
     <div id="hint"></div>
+    <div id="usage"></div>
   </div>
 <script nonce="${n}">
 (function () {
@@ -330,8 +578,10 @@ function getHtml(webview: vscode.Webview): string {
   var modelEl = document.getElementById('model');
   var refreshModelsBtn = document.getElementById('refreshModels');
   var hintEl = document.getElementById('hint');
+  var usageEl = document.getElementById('usage');
 
   var HINTS = {
+    plan: '📋 Планирование: Kimi только читает проект и составляет план — ничего не меняет.',
     ask: 'Агентский режим: Kimi читает проект, но каждая правка и команда — с вашего подтверждения.',
     autoEdit: 'Авто-правки: файлы меняются без вопросов, команды в терминале — с подтверждением.',
     fullAuto: '⚠️ Полная автономность: Kimi сам правит файлы и запускает команды, ни о чём не спрашивая.'
@@ -366,6 +616,10 @@ function getHtml(webview: vscode.Webview): string {
       modelEl.appendChild(opt);
     }
     if (current) modelEl.value = current;
+  }
+
+  function fmtTokens(n) {
+    return n >= 1000 ? (n / 1000).toFixed(1).replace('.', ' ') + 'k' : String(n);
   }
 
   var busy = false;
@@ -418,6 +672,14 @@ function getHtml(webview: vscode.Webview): string {
     scrollDown();
   }
 
+  function addInfo(text) {
+    var div = document.createElement('div');
+    div.className = 'tool';
+    div.textContent = 'ℹ️ ' + text;
+    messagesEl.appendChild(div);
+    scrollDown();
+  }
+
   function setBusy(b) {
     busy = b;
     sendBtn.textContent = b ? 'Стоп' : 'Отправить';
@@ -466,6 +728,24 @@ function getHtml(webview: vscode.Webview): string {
         break;
       case 'tool':
         addTool(m.name, m.status, m.detail);
+        break;
+      case 'info':
+        addInfo(m.text);
+        break;
+      case 'usage':
+        usageEl.textContent = '⚡ запрос: ' + fmtTokens(m.request) + ' ток. · сессия: ' + fmtTokens(m.session) + ' ток.';
+        break;
+      case 'insertText':
+        inputEl.value += m.text;
+        inputEl.focus();
+        break;
+      case 'history':
+        messagesEl.innerHTML = '';
+        for (var i = 0; i < (m.items || []).length; i++) {
+          var it = m.items[i];
+          if (it.role === 'user') addMsg('user', it.content.split('\\n')[0].slice(0, 300));
+          else if (it.role === 'assistant') addMsg('assistant', it.content);
+        }
         break;
       case 'done':
         currentEl = null;

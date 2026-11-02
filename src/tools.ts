@@ -15,6 +15,12 @@ export function consumeChangesMade(): boolean {
   return v;
 }
 
+/** Хук снимка файла перед изменением (checkpoints). Устанавливает чат-панель. */
+let snapshotHook: ((absPath: string) => void) | null = null;
+export function setSnapshotHook(hook: ((absPath: string) => void) | null): void {
+  snapshotHook = hook;
+}
+
 const SKIP_DIRS = new Set([
   'node_modules', '.git', 'out', 'dist', 'build', '.vscode', '.idea',
   'coverage', 'target', '.next', '.cache', 'vendor', '__pycache__',
@@ -184,6 +190,7 @@ async function toolWriteFile(args: any): Promise<string> {
   );
   if (!ok) return 'Изменение отклонено пользователем.';
 
+  snapshotHook?.(full); // снимок для отката (checkpoints)
   fs.mkdirSync(path.dirname(full), { recursive: true });
   fs.writeFileSync(full, content, 'utf8');
   changesMade = true;
@@ -313,10 +320,38 @@ async function toolDeploy(_args: any): Promise<string> {
   return runShell(cmd, 600_000);
 }
 
+// ---------- диагностика IDE ----------
+
+/** Ошибки и предупреждения из панели «Проблемы» VS Code (линтеры, компиляторы). */
+function toolGetDiagnostics(args: any): string {
+  const onlyErrors = args?.onlyErrors !== false;
+  const lines: string[] = [];
+  const r = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  for (const [uri, diags] of vscode.languages.getDiagnostics()) {
+    if (lines.length >= 50) break;
+    if (r && !uri.fsPath.startsWith(r)) continue;
+    const rel = r ? path.relative(r, uri.fsPath) : uri.fsPath;
+    for (const d of diags) {
+      if (lines.length >= 50) break;
+      if (onlyErrors && d.severity > vscode.DiagnosticSeverity.Error) continue;
+      const sev =
+        d.severity === vscode.DiagnosticSeverity.Error
+          ? 'ERROR'
+          : d.severity === vscode.DiagnosticSeverity.Warning
+            ? 'WARN'
+            : 'INFO';
+      lines.push(
+        `${rel}:${d.range.start.line + 1}:${d.range.start.character + 1} [${sev}] ${d.message.split('\n')[0].slice(0, 200)}`
+      );
+    }
+  }
+  return lines.length ? lines.join('\n') : 'Проблем не найдено — проект чистый. ✅';
+}
+
 // ---------- публичный интерфейс ----------
 
-export function toolDefinitions(): ToolDef[] {
-  return [
+export function toolDefinitions(readonly = false): ToolDef[] {
+  const defs: ToolDef[] = [
     {
       type: 'function',
       function: {
@@ -406,6 +441,21 @@ export function toolDefinitions(): ToolDef[] {
     {
       type: 'function',
       function: {
+        name: 'get_diagnostics',
+        description:
+          'Получить ошибки и предупреждения из панели «Проблемы» VS Code (линтеры, компиляторы) по всему проекту. ' +
+          'Используй после правок, чтобы убедиться, что код компилируется без ошибок.',
+        parameters: {
+          type: 'object',
+          properties: {
+            onlyErrors: { type: 'boolean', description: 'Только ошибки без предупреждений (по умолчанию true)' },
+          },
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
         name: 'run_command',
         description: 'Выполнить shell-команду в корне проекта (с подтверждением пользователя). Таймаут 60 секунд.',
         parameters: {
@@ -416,6 +466,11 @@ export function toolDefinitions(): ToolDef[] {
       },
     },
   ];
+
+  if (!readonly) return defs;
+  // режим планирования: только инструменты чтения
+  const READ_ONLY = new Set(['read_file', 'list_files', 'search_in_files', 'get_diagnostics']);
+  return defs.filter((d) => READ_ONLY.has(d.function.name));
 }
 
 export async function executeTool(name: string, argsJson: string): Promise<string> {
@@ -440,6 +495,8 @@ export async function executeTool(name: string, argsJson: string): Promise<strin
       return toolGitPush(args);
     case 'deploy':
       return toolDeploy(args);
+    case 'get_diagnostics':
+      return toolGetDiagnostics(args);
     default:
       throw new Error(`Неизвестный инструмент: ${name}`);
   }
