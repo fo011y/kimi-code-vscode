@@ -121,6 +121,7 @@ This uses the same Device Code OAuth flow (RFC 8628) as the official Kimi Code C
 | `kimi.respectGitIgnore` | `true` | Respect `.gitignore` when walking files |
 | `kimi.autoCompactTokens` | `150000` | Auto-archive the session when the prompt exceeds this size (tokens); `0` — disable |
 | `kimi.autoNudgeSeconds` | `90` | Auto-nudge: after this many seconds of API silence the stalled request is restarted (up to 3 times); `0` — disable |
+| `kimi.trustedFolders` | `[]` | Extra folders outside the workspace that the agent may read/write (absolute paths, e.g. `D:\Jobe\1\ipc-site`) |
 | `kimi.attachSelection` | `true` | Attach selected code to messages |
 | `kimi.attachOpenFile` | `false` | Attach the whole open file when nothing is selected |
 | `kimi.useCtrlEnterToSend` | `false` | Send with Ctrl+Enter |
@@ -130,7 +131,7 @@ This uses the same Device Code OAuth flow (RFC 8628) as the official Kimi Code C
 
 - The API key and OAuth tokens are stored only in VS Code SecretStorage.
 - In `ask` mode every file write and command requires confirmation. `fullAuto` is full carte blanche: it disables all confirmations and force-enables GitHub auto-push and auto-deploy (regardless of `kimi.autoPush`/`kimi.autoDeploy`). Use only in projects you trust (preferably under git).
-- Agent tools cannot leave the opened project folder.
+- Agent tools cannot leave the opened project folder — except folders you explicitly list in `kimi.trustedFolders`.
 - Command timeout: 60 seconds (deploy: 10 minutes).
 
 ## Development

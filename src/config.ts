@@ -93,6 +93,12 @@ export function getAutoNudgeSeconds(): number {
   return vscode.workspace.getConfiguration('kimi').get<number>('autoNudgeSeconds', 90);
 }
 
+/** Дополнительные папки вне рабочей области, к которым агент получает доступ. */
+export function getTrustedFolders(): string[] {
+  const v = vscode.workspace.getConfiguration('kimi').get<string[]>('trustedFolders', []);
+  return Array.isArray(v) ? v : [];
+}
+
 /** Прикреплять выделенный код к сообщениям. */
 export function getAttachSelection(): boolean {
   return vscode.workspace.getConfiguration('kimi').get<boolean>('attachSelection', true);
