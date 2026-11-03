@@ -144,7 +144,7 @@ export async function runAgentLoop(
         hooks.onTool(name, 'running');
         let result: string;
         try {
-          result = await executeTool(name, call.function.arguments);
+          result = await executeTool(name, call.function.arguments, hooks.signal);
           hooks.onTool(name, 'done');
         } catch (e: any) {
           result = `Ошибка инструмента: ${e?.message ?? String(e)}`;
