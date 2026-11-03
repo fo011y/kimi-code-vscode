@@ -55,6 +55,10 @@
         "title": "Kimi: Аккаунт и статус"
       },
       {
+        "command": "kimi.showUsage",
+        "title": "Kimi: Лимиты использования"
+      },
+      {
         "command": "kimi.setApiKey",
         "title": "Kimi: Указать API-ключ"
       },

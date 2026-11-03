@@ -79,6 +79,43 @@ export async function listModels(cfg: ApiConfig): Promise<string[]> {
   return ids.length > 0 ? ids.sort() : FALLBACK_MODELS;
 }
 
+/** Оценка размера контекстного окна по имени модели (k3-256k → 256k). */
+export function contextWindowForModel(model: string): number {
+  const m = /(\d+)\s*k(?![a-z])/i.exec(model);
+  if (m) return parseInt(m[1], 10) * 1024;
+  return 128 * 1024; // дефолт — 128k
+}
+
+export interface BalanceInfo {
+  available: number;
+  voucher: number;
+  cash: number;
+}
+
+/**
+ * Баланс открытой платформы Moonshot (GET /users/me/balance).
+ * Работает только для API-ключа platform.moonshot.*; при ошибке — undefined.
+ */
+export async function fetchBalance(baseUrl: string, apiKey: string): Promise<BalanceInfo | undefined> {
+  try {
+    const res = await fetch(`${baseUrl.replace(/\/+$/, '')}/users/me/balance`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+      signal: AbortSignal.timeout(8_000),
+    });
+    if (!res.ok) return undefined;
+    const json: any = await res.json();
+    const d = json?.data;
+    if (!d || typeof d !== 'object') return undefined;
+    return {
+      available: Number(d.available_balance ?? 0),
+      voucher: Number(d.voucher_balance ?? 0),
+      cash: Number(d.cash_balance ?? 0),
+    };
+  } catch {
+    return undefined;
+  }
+}
+
 export async function streamChat(
   cfg: ApiConfig,
   messages: ChatMessage[],

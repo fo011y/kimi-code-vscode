@@ -4,12 +4,13 @@ import {
   ensureApiKey,
   ensureAuth,
   getApiConfig,
+  getAuthQuiet,
   getModel,
   getPermissionMode,
   PERMISSION_MODE_LABELS,
   PermissionMode,
 } from './config';
-import { ApiConfig, ChatMessage, FALLBACK_MODELS, listModels, streamChat } from './api';
+import { ApiConfig, ChatMessage, contextWindowForModel, FALLBACK_MODELS, fetchBalance, listModels, streamChat } from './api';
 import { getAuthState } from './auth';
 
 function selectedCode(): { editor: vscode.TextEditor; text: string; rel: string } | undefined {
@@ -170,6 +171,7 @@ export function activate(context: vscode.ExtensionContext): void {
     const pick = await vscode.window.showQuickPick(
       [
         { label: '$(comment-discussion) Открыть чат', id: 'chat' },
+        { label: '$(graph) Лимиты использования', id: 'usage' },
         { label: '$(symbol-misc) Сменить модель', id: 'model' },
         { label: '$(shield) Режим автономности', id: 'mode' },
         { label: '$(refresh) Сменить способ входа', id: 'relogin' },
@@ -179,10 +181,50 @@ export function activate(context: vscode.ExtensionContext): void {
     );
     if (!pick) return;
     if (pick.id === 'chat') await vscode.commands.executeCommand('kimi.focus');
+    if (pick.id === 'usage') await vscode.commands.executeCommand('kimi.showUsage');
     if (pick.id === 'model') await vscode.commands.executeCommand('kimi.setModel');
     if (pick.id === 'mode') await vscode.commands.executeCommand('kimi.setMode');
     if (pick.id === 'relogin') await vscode.commands.executeCommand('kimi.login');
     if (pick.id === 'logout') await vscode.commands.executeCommand('kimi.logout');
+  });
+
+  cmd('kimi.showUsage', async () => {
+    const auth = await getAuthQuiet(context);
+    if (!auth) {
+      vscode.window.showInformationMessage('Kimi: сначала войдите в аккаунт.');
+      return;
+    }
+    const model = getModel();
+    const win = contextWindowForModel(model);
+    const info = provider.getUsageInfo();
+    const pct = info.lastPromptTokens > 0 ? Math.round((info.lastPromptTokens / win) * 100) : 0;
+    const lines: string[] = [
+      `Модель: ${model} (окно ${Math.round(win / 1024)}k токенов)`,
+      `Контекст текущего диалога: ${info.lastPromptTokens.toLocaleString('ru-RU')} токенов (${pct}% окна)`,
+      `Израсходовано за сессию VS Code: ${info.sessionTokens.toLocaleString('ru-RU')} токенов`,
+    ];
+    if (auth.kind === 'apiKey') {
+      const bal = await fetchBalance(auth.baseUrl, auth.token);
+      lines.push(
+        bal
+          ? `Баланс платформы: ¥${bal.available.toFixed(2)} (средства ¥${bal.cash.toFixed(2)} + ваучеры ¥${bal.voucher.toFixed(2)})`
+          : 'Баланс платформы: не удалось получить (см. platform.moonshot.ai)'
+      );
+    } else {
+      lines.push(
+        'Квота подписки Kimi: 5-часовое скользящее окно + месячный лимит. ' +
+          'Точный остаток и статус rate-limit — в консоли Kimi Code.'
+      );
+    }
+    const openBtn = '🌐 Открыть консоль Kimi Code';
+    const r = await vscode.window.showInformationMessage(
+      'Kimi: лимиты использования',
+      { modal: true, detail: lines.join('\n') },
+      openBtn
+    );
+    if (r === openBtn) {
+      void vscode.env.openExternal(vscode.Uri.parse('https://code.kimi.com/kimi-code'));
+    }
   });
 
   cmd('kimi.logout', async () => {

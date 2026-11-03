@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { ApiConfig, ChatMessage, FALLBACK_MODELS, listModels, streamChat, TokenUsage } from './api';
+import { ApiConfig, ChatMessage, contextWindowForModel, FALLBACK_MODELS, listModels, streamChat, TokenUsage } from './api';
 import { runAgentLoop, isContextOverflowError } from './agent';
 import { getAuthState } from './auth';
 import { CheckpointEntry, CheckpointStore } from './checkpoints';
@@ -263,6 +263,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     });
   }
 
+  /** Статистика расхода токенов для команды «Лимиты использования». */
+  getUsageInfo(): { lastPromptTokens: number; sessionTokens: number } {
+    return { lastPromptTokens: this.lastPromptTokens, sessionTokens: this.sessionTokens };
+  }
+
   /** Переслать флаги настроек во все веб-панели (при изменении конфигурации). */
   postSettings(): void {
     this.post({
@@ -306,6 +311,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       case 'authAction':
         if (m.action === 'relogin') await vscode.commands.executeCommand('kimi.login');
         else if (m.action === 'rekey') await vscode.commands.executeCommand('kimi.setApiKey');
+        else if (m.action === 'usage') await vscode.commands.executeCommand('kimi.showUsage');
         else if (m.action === 'logoutOAuth') await vscode.commands.executeCommand('kimi.logoutDirect', 'oauth');
         else if (m.action === 'clearKey') await vscode.commands.executeCommand('kimi.logoutDirect', 'apiKey');
         break;
@@ -790,7 +796,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         requestTokens += u.total_tokens;
         this.sessionTokens += u.total_tokens;
         this.lastPromptTokens = u.prompt_tokens || u.total_tokens;
-        this.post({ type: 'usage', request: requestTokens, session: this.sessionTokens });
+        this.post({
+          type: 'usage',
+          request: requestTokens,
+          session: this.sessionTokens,
+          prompt: this.lastPromptTokens,
+          window: contextWindowForModel(cfg.model),
+        });
       };
 
       if (agent) {
@@ -1189,6 +1201,7 @@ function getHtml(webview: vscode.Webview): string {
       var sep = document.createElement('div');
       sep.className = 'sep';
       authMenu.appendChild(sep);
+      authMenu.appendChild(authMenuItem('📊 Лимиты использования', 'usage'));
       authMenu.appendChild(authMenuItem('🌐 Сменить способ входа', 'relogin'));
       authMenu.appendChild(authMenuItem('🚪 Выйти из аккаунта', 'logoutOAuth'));
     } else if (currentAuth.kind === 'apiKey') {
@@ -1199,6 +1212,7 @@ function getHtml(webview: vscode.Webview): string {
       var sep2 = document.createElement('div');
       sep2.className = 'sep';
       authMenu.appendChild(sep2);
+      authMenu.appendChild(authMenuItem('📊 Лимиты и баланс', 'usage'));
       authMenu.appendChild(authMenuItem('🔑 Сменить API-ключ', 'rekey'));
       authMenu.appendChild(authMenuItem('🌐 Войти через сайт (OAuth)', 'relogin'));
       authMenu.appendChild(authMenuItem('🚪 Удалить API-ключ', 'clearKey'));
@@ -1682,9 +1696,15 @@ function getHtml(webview: vscode.Webview): string {
       case 'info':
         addInfo(m.text);
         break;
-      case 'usage':
-        usageEl.textContent = '⚡ запрос: ' + fmtTokens(m.request) + ' ток. · сессия: ' + fmtTokens(m.session) + ' ток.';
+      case 'usage': {
+        var uTxt = '⚡ запрос: ' + fmtTokens(m.request) + ' ток. · сессия: ' + fmtTokens(m.session) + ' ток.';
+        if (m.window > 0 && m.prompt > 0) {
+          var pct = Math.round((m.prompt / m.window) * 100);
+          uTxt += ' · контекст: ' + fmtTokens(m.prompt) + '/' + Math.round(m.window / 1024) + 'k (' + pct + '%)';
+        }
+        usageEl.textContent = uTxt;
         break;
+      }
       case 'insertText':
         inputEl.value += m.text;
         inputEl.focus();
