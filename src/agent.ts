@@ -21,7 +21,8 @@ export function isContextOverflowError(e: unknown): boolean {
 function sketch(m: ChatMessage): string {
   if (m.role === 'assistant') {
     const parts: string[] = [];
-    if (m.content) parts.push(m.content.slice(0, 2000));
+    if (typeof m.content === 'string') parts.push(m.content.slice(0, 2000));
+    else if (Array.isArray(m.content)) parts.push('[медиа-контент]');
     if (m.tool_calls?.length) {
       parts.push(
         '[вызовы инструментов: ' +

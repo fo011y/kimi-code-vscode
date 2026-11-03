@@ -16,7 +16,8 @@ export interface ToolCall {
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
-  content?: string;
+  /** Строка или массив частей (text / image_url) для vision-запросов. */
+  content?: string | Array<Record<string, unknown>>;
   tool_calls?: ToolCall[];
   tool_call_id?: string;
   name?: string;

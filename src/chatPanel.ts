@@ -70,8 +70,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
   private webviews = new Set<vscode.Webview>();
   private pending: Array<{ text: string; agent: boolean }> = [];
-  private queue: Array<{ text: string; agent: boolean }> = [];
-  private lightningNext: { text: string; agent: boolean } | null = null;
+  private queue: Array<{ text: string; agent: boolean; images?: string[] }> = [];
+  private lightningNext: { text: string; agent: boolean; images?: string[] } | null = null;
   private sessions: Session[] = [];
   private activeId = '';
   private checkpointStores = new Map<string, CheckpointStore>();
@@ -285,18 +285,20 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   private async onMessage(m: any): Promise<void> {
     const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     switch (m?.type) {
-      case 'ask':
-        if (this.busy) this.enqueue(String(m.text ?? ''), !!m.agent);
-        else await this.handleAsk(String(m.text ?? ''), !!m.agent);
+      case 'ask': {
+        const images = Array.isArray(m.images) ? (m.images as string[]) : undefined;
+        if (this.busy) this.enqueue(String(m.text ?? ''), !!m.agent, images);
+        else await this.handleAsk(String(m.text ?? ''), !!m.agent, images);
         break;
+      }
       case 'enqueue':
-        this.enqueue(String(m.text ?? ''), !!m.agent);
+        this.enqueue(String(m.text ?? ''), !!m.agent, Array.isArray(m.images) ? m.images : undefined);
         break;
       case 'dequeue':
         this.removeFromQueue(Number(m.index));
         break;
       case 'lightning':
-        this.sendLightning(String(m.text ?? ''), !!m.agent);
+        this.sendLightning(String(m.text ?? ''), !!m.agent, Array.isArray(m.images) ? m.images : undefined);
         break;
       case 'nudge':
         this.nudge(!!m.agent);
@@ -341,7 +343,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         if (q.length >= 2) {
           for (const s of this.sessions) {
             for (let idx = 0; idx < s.history.length; idx++) {
-              const c = s.history[idx].content ?? '';
+              const raw = s.history[idx].content;
+              const c = typeof raw === 'string' ? raw : '';
               const pos = c.toLowerCase().indexOf(q);
               if (pos < 0) continue;
               const start = Math.max(0, pos - 50);
@@ -479,10 +482,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   // ---------- очередь сообщений ----------
 
   /** Поставить сообщение в очередь (отправится, когда агент освободится). */
-  private enqueue(text: string, agent: boolean): void {
+  private enqueue(text: string, agent: boolean, images?: string[]): void {
     const t = text.trim();
-    if (!t) return;
-    this.queue.push({ text: t, agent });
+    if (!t && !images?.length) return;
+    this.queue.push({ text: t, agent, images });
     this.postQueue();
   }
 
@@ -492,7 +495,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   }
 
   private postQueue(): void {
-    this.post({ type: 'queue', items: this.queue.map((q) => q.text) });
+    this.post({
+      type: 'queue',
+      items: this.queue.map((q) => q.text + (q.images?.length ? ` 📎×${q.images.length}` : '')),
+    });
   }
 
   /**
@@ -505,14 +511,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     this.lightningNext = null;
     if (!next) return;
     this.postQueue();
-    void this.handleAsk(next.text, next.agent);
+    void this.handleAsk(next.text, next.agent, next.images);
   }
 
   /** «Молния»: прервать текущую задачу и отправить сообщение немедленно. */
-  private sendLightning(text: string, agent: boolean): void {
+  private sendLightning(text: string, agent: boolean, images?: string[]): void {
     const t = text.trim();
-    if (!t) return;
-    this.lightningNext = { text: t, agent };
+    if (!t && !images?.length) return;
+    this.lightningNext = { text: t, agent, images };
     if (this.busy) {
       this.abort?.abort(); // finally текущей задачи вызовет pumpQueue → молния уйдёт первой
     } else {
@@ -774,16 +780,19 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
   // ---------- основной цикл ----------
 
-  private async handleAsk(userText: string, agent: boolean): Promise<void> {
+  private async handleAsk(userText: string, agent: boolean, images: string[] = []): Promise<void> {
     const trimmed = userText.trim();
-    if (!trimmed || this.busy) return;
+    if ((!trimmed && images.length === 0) || this.busy) return;
 
     if (trimmed.startsWith('/') && (await this.handleSlash(trimmed))) return;
 
     this.busy = true;
     this.abort = new AbortController();
 
-    this.post({ type: 'user', text: userText });
+    this.post({
+      type: 'user',
+      text: userText + (images.length ? `${userText ? '\n' : ''}📎 изображений: ${images.length}` : ''),
+    });
     this.post({ type: 'start' });
 
     try {
@@ -804,11 +813,22 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
       const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
       const plan = isPlanMode();
-      const userContent = await this.buildUserContent(userText);
+      const userContent = await this.buildUserContent(trimmed || 'Что на этом изображении?');
+      // vision: картинки идут только в этот запрос; в историю — текстовая пометка,
+      // чтобы не раздувать сохранённые сессии мегабайтами data-URL
+      const userMsg: ChatMessage = images.length
+        ? {
+            role: 'user',
+            content: [
+              { type: 'text', text: userContent },
+              ...images.map((u) => ({ type: 'image_url', image_url: { url: u } })),
+            ],
+          }
+        : { role: 'user', content: userContent };
       const messages: ChatMessage[] = [
         { role: 'system', content: systemPrompt(root, plan) },
         ...this.active().history.slice(-20),
-        { role: 'user', content: userContent },
+        userMsg,
       ];
 
       let acc = '';
@@ -926,7 +946,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           const retry: ChatMessage[] = [
             { role: 'system', content: systemPrompt(root, plan) },
             ...this.active().history.slice(-20),
-            { role: 'user', content: userContent },
+            userMsg,
           ];
           const res2 = await streamChat(cfg, retry, { onToken, signal: this.abort.signal });
           if (res2.usage) onUsage(res2.usage);
@@ -940,7 +960,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       }
 
       this.active().history.push(
-        { role: 'user', content: userContent },
+        {
+          role: 'user',
+          content: userContent + (images.length ? `\n[📎 прикреплено изображений: ${images.length}]` : ''),
+        },
         { role: 'assistant', content: acc }
       );
       this.saveSessions();
@@ -1108,6 +1131,20 @@ function getHtml(webview: vscode.Webview): string {
     padding: 8px;
   }
   #queueRow { margin-bottom: 6px; flex-direction: column; gap: 3px; }
+  #imgRow { margin-bottom: 6px; gap: 6px; flex-wrap: wrap; }
+  .imgchip { position: relative; }
+  .imgchip img {
+    height: 52px; display: block; border-radius: 6px;
+    border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+  }
+  .imgchip .x {
+    position: absolute; top: -6px; right: -6px; width: 16px; height: 16px;
+    border-radius: 50%; background: var(--vscode-button-secondaryBackground);
+    color: var(--vscode-button-secondaryForeground);
+    font-size: 11px; line-height: 16px; text-align: center; cursor: pointer;
+    border: 1px solid var(--vscode-panel-border);
+  }
+  .imgchip .x:hover { color: var(--vscode-errorForeground); }
   .qchip {
     display: flex; align-items: center; gap: 6px;
     font-size: 0.85em; padding: 3px 8px; border-radius: 4px;
@@ -1160,7 +1197,8 @@ function getHtml(webview: vscode.Webview): string {
   <div id="messages"></div>
   <div id="inputArea">
     <div id="queueRow" style="display:none"></div>
-    <textarea id="input" placeholder="Спросите Kimi… (Enter — отправить, @файл — прикрепить, /help — команды)"></textarea>
+    <div id="imgRow" style="display:none"></div>
+    <textarea id="input" placeholder="Спросите Kimi… (Enter — отправить, @файл — прикрепить, Ctrl+V — скриншот, /help — команды)"></textarea>
     <div class="row">
       <label><input type="checkbox" id="agent" checked> Агент</label>
       <select id="mode" title="Режим автономности">
@@ -1207,6 +1245,76 @@ function getHtml(webview: vscode.Webview): string {
   var searchInput = document.getElementById('searchInput');
   var searchResults = document.getElementById('searchResults');
   var queueRow = document.getElementById('queueRow');
+  var imgRow = document.getElementById('imgRow');
+
+  // --- прикрепление скриншотов из буфера (Ctrl+V) ---
+  var pendingImages = [];
+
+  function renderImgChips() {
+    imgRow.innerHTML = '';
+    imgRow.style.display = pendingImages.length ? 'flex' : 'none';
+    pendingImages.forEach(function (url, i) {
+      var chip = document.createElement('div');
+      chip.className = 'imgchip';
+      var im = document.createElement('img');
+      im.src = url;
+      im.title = 'Скриншот ' + (i + 1) + ' — отправится со следующим сообщением';
+      chip.appendChild(im);
+      var x = document.createElement('div');
+      x.className = 'x';
+      x.textContent = '✕';
+      x.title = 'Убрать';
+      x.addEventListener('click', function () {
+        pendingImages.splice(i, 1);
+        renderImgChips();
+      });
+      chip.appendChild(x);
+      imgRow.appendChild(chip);
+    });
+  }
+
+  function addPastedImage(dataUrl) {
+    var img = new Image();
+    img.onload = function () {
+      var max = 1280, w = img.width, h = img.height;
+      if (Math.max(w, h) > max) {
+        var k = max / Math.max(w, h);
+        w = Math.round(w * k);
+        h = Math.round(h * k);
+      }
+      var c = document.createElement('canvas');
+      c.width = w;
+      c.height = h;
+      c.getContext('2d').drawImage(img, 0, 0, w, h);
+      pendingImages.push(c.toDataURL('image/jpeg', 0.85));
+      renderImgChips();
+    };
+    img.src = dataUrl;
+  }
+
+  inputEl.addEventListener('paste', function (e) {
+    var items = (e.clipboardData && e.clipboardData.items) || [];
+    var found = false;
+    for (var i = 0; i < items.length; i++) {
+      if (items[i].type && items[i].type.indexOf('image/') === 0) {
+        var file = items[i].getAsFile();
+        if (file) {
+          found = true;
+          var reader = new FileReader();
+          reader.onload = function (ev) { addPastedImage(ev.target.result); };
+          reader.readAsDataURL(file);
+        }
+      }
+    }
+    if (found) e.preventDefault();
+  });
+
+  function takeImages() {
+    var imgs = pendingImages.slice();
+    pendingImages = [];
+    renderImgChips();
+    return imgs;
+  }
   var lightningBtn = document.getElementById('lightning');
   var nudgeBtn = document.getElementById('nudge');
   var defaultPlaceholder = inputEl.placeholder;
@@ -1700,16 +1808,16 @@ function getHtml(webview: vscode.Webview): string {
   function send() {
     if (busy) {
       var qtext = inputEl.value.trim();
-      if (qtext) {
+      if (qtext || pendingImages.length) {
         inputEl.value = '';
-        vscode.postMessage({ type: 'enqueue', text: qtext, agent: agentEl.checked });
+        vscode.postMessage({ type: 'enqueue', text: qtext, agent: agentEl.checked, images: takeImages() });
       }
       return;
     }
     var text = inputEl.value;
-    if (!text.trim()) return;
+    if (!text.trim() && !pendingImages.length) return;
     inputEl.value = '';
-    vscode.postMessage({ type: 'ask', text: text, agent: agentEl.checked });
+    vscode.postMessage({ type: 'ask', text: text, agent: agentEl.checked, images: takeImages() });
     setBusy(true);
   }
 
@@ -1725,9 +1833,9 @@ function getHtml(webview: vscode.Webview): string {
   // «Молния»: прервать текущую задачу и отправить сообщение немедленно
   lightningBtn.addEventListener('click', function () {
     var text = inputEl.value.trim();
-    if (!text) return;
+    if (!text && !pendingImages.length) return;
     inputEl.value = '';
-    vscode.postMessage({ type: 'lightning', text: text, agent: agentEl.checked });
+    vscode.postMessage({ type: 'lightning', text: text, agent: agentEl.checked, images: takeImages() });
   });
 
   // «Пнуть»: прервать зависший запрос и попросить агента продолжить
