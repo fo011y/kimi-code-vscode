@@ -1276,7 +1276,7 @@ function getHtml(webview: vscode.Webview): string {
   function addPastedImage(dataUrl) {
     var img = new Image();
     img.onload = function () {
-      var max = 1280, w = img.width, h = img.height;
+      var max = 1920, w = img.width, h = img.height;
       if (Math.max(w, h) > max) {
         var k = max / Math.max(w, h);
         w = Math.round(w * k);
@@ -1286,7 +1286,7 @@ function getHtml(webview: vscode.Webview): string {
       c.width = w;
       c.height = h;
       c.getContext('2d').drawImage(img, 0, 0, w, h);
-      pendingImages.push(c.toDataURL('image/jpeg', 0.85));
+      pendingImages.push(c.toDataURL('image/jpeg', 0.92));
       renderImgChips();
     };
     img.src = dataUrl;

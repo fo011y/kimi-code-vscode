@@ -23,6 +23,18 @@ code --install-extension kimi-code-0.7.0.vsix
 
 Or in VS Code: `Ctrl+Shift+P` → **Extensions: Install from VSIX…** → pick the downloaded file.
 
+## 🆕 What's new in 0.7.0
+
+- **Sign in via the Kimi website (OAuth)** — no API key, same flow as the official Kimi Code CLI; tokens refresh automatically.
+- **Message queue & lightning ⚡** — drop more ideas while the agent is thinking; ⚡ aborts the task and sends instantly.
+- **"👢 Nudge" button & auto-nudge** — agent stuck? Kick it manually, or let the watchdog do it: 90 s of API silence restarts the request (up to 3 attempts, `kimi.autoNudgeSeconds`).
+- **Auto-archiving at the token limit** — when the context overflows, the session is compressed into a summary and work continues without losing the task.
+- **Usage limits** — context-window fill right in the chat (`context: 19.6k/128k (15%)`); `Kimi: Show Usage Limits` command (account menu and chat menu): model, session spend, platform balance for API keys, link to the Kimi Code console.
+- **Paste screenshots (Ctrl+V)** — paste images straight into the chat (vision models), thumbnails with remove buttons, works with the queue and lightning.
+- **Multi-sessions with search** — conversation tabs, history restore after restart (up to 100 messages), 🔍 search across all sessions with jump-to-message.
+- **Checkpoints / revert** — file snapshots before edits, "Changes by Kimi" panel with diffs and revert.
+- **Full autonomy** — `fullAuto` mode: edits, commands, GitHub auto-push and auto-deploy — without a single prompt.
+
 ## 📸 Screenshots
 
 Kimi chat in an editor tab — model picker, autonomy mode, account button (`✓ Kimi.ai` = signed in via website):
@@ -62,6 +74,9 @@ Kimi in the status bar — bottom right, next to Claude Code:
 - **Session history** — conversations survive VS Code restarts (per project). Opening the chat automatically restores the last active session with its history (up to 100 messages).
 - **History search** — a 🔍 button in the session tabs: searches across all project sessions, highlights matches; clicking a result switches to that session and scrolls to the found message.
 - **Message queue & lightning** — while the agent is busy, Enter queues the message (sent automatically afterwards; the queue is listed above the input, each item removable via ✕). The ⚡ button aborts the current task and sends your message immediately.
+- **"👢 Nudge" button & auto-nudge** — if the agent hangs: 👢 aborts the request and asks it to continue. A watchdog does this automatically after `kimi.autoNudgeSeconds` seconds of API silence (default 90, up to 3 attempts; paused while tools run).
+- **Paste screenshots** — Ctrl+V in the input attaches an image (up to 1920 px, JPEG): thumbnails above the input, remove via ✕, send with or without text. Requires a vision model (e.g. `kimi-latest`).
+- **Usage limits** — the line under the input shows the context-window fill (`context: 45k/256k (18%)`). `Kimi: Show Usage Limits` (also in the status-bar account menu and the `…` menu in chat): model and window, session spend, Moonshot platform balance for API keys, and a button to open the Kimi Code console for subscription quota.
 - **Auto-archiving at the token limit** — when the context approaches the model limit (setting `kimi.autoCompactTokens`), the agent compresses the middle of the conversation into a summary and keeps working without losing the task thread. Works inside long agent tasks, between requests, and on context-overflow errors (retry after archiving).
 - **Token counter** — per-request and per-session usage under the input box.
 - **GitHub push** — `git_push` agent tool and `kimi.autoPush` setting: automatic commit + push after agent tasks. In **Full auto** mode pushing always happens, regardless of the setting.
@@ -105,6 +120,7 @@ This uses the same Device Code OAuth flow (RFC 8628) as the official Kimi Code C
 | `kimi.autoDeploy` | `false` | Auto deploy after agent tasks, after auto-push (always on in `fullAuto` if a command is set) |
 | `kimi.respectGitIgnore` | `true` | Respect `.gitignore` when walking files |
 | `kimi.autoCompactTokens` | `150000` | Auto-archive the session when the prompt exceeds this size (tokens); `0` — disable |
+| `kimi.autoNudgeSeconds` | `90` | Auto-nudge: after this many seconds of API silence the stalled request is restarted (up to 3 times); `0` — disable |
 | `kimi.attachSelection` | `true` | Attach selected code to messages |
 | `kimi.attachOpenFile` | `false` | Attach the whole open file when nothing is selected |
 | `kimi.useCtrlEnterToSend` | `false` | Send with Ctrl+Enter |
