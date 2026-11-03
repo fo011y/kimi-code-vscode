@@ -297,6 +297,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       case 'dequeue':
         this.removeFromQueue(Number(m.index));
         break;
+      case 'moveQueue':
+        this.moveInQueue(Number(m.index), Number(m.dir));
+        break;
       case 'lightning':
         this.sendLightning(String(m.text ?? ''), !!m.agent, Array.isArray(m.images) ? m.images : undefined);
         break;
@@ -497,8 +500,17 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   private postQueue(): void {
     this.post({
       type: 'queue',
-      items: this.queue.map((q) => q.text + (q.images?.length ? ` 📎×${q.images.length}` : '')),
+      items: this.queue.map((q) => ({ text: q.text, images: q.images ?? [] })),
     });
+  }
+
+  /** Переместить сообщение в очереди на одну позицию (-1 выше, +1 ниже). */
+  private moveInQueue(index: number, dir: number): void {
+    const j = index + dir;
+    if (index < 0 || index >= this.queue.length || j < 0 || j >= this.queue.length) return;
+    const [item] = this.queue.splice(index, 1);
+    this.queue.splice(j, 0, item);
+    this.postQueue();
   }
 
   /**
@@ -1152,7 +1164,10 @@ function getHtml(webview: vscode.Webview): string {
     border: 1px solid var(--vscode-input-border, transparent);
   }
   .qchip .qn { opacity: 0.5; }
-  .qchip .qt { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: 0.85; }
+  .qchip .qt { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: 0.85; cursor: pointer; }
+  .qchip .qt:hover { opacity: 1; text-decoration: underline; }
+  .qchip .qm { cursor: pointer; opacity: 0.5; padding: 0 2px; }
+  .qchip .qm:hover { opacity: 1; color: var(--vscode-textLink-foreground); }
   .qchip .qx { cursor: pointer; opacity: 0.5; }
   .qchip .qx:hover { opacity: 1; color: var(--vscode-errorForeground); }
   #input {
@@ -1767,7 +1782,9 @@ function getHtml(webview: vscode.Webview): string {
   function renderQueue(items) {
     queueRow.innerHTML = '';
     queueRow.style.display = items && items.length ? 'flex' : 'none';
-    (items || []).forEach(function (t, i) {
+    (items || []).forEach(function (it, i) {
+      var t = typeof it === 'string' ? it : (it.text || '');
+      var imgs = (typeof it === 'object' && it && it.images) || [];
       var chip = document.createElement('div');
       chip.className = 'qchip';
       var n = document.createElement('span');
@@ -1775,8 +1792,31 @@ function getHtml(webview: vscode.Webview): string {
       n.textContent = '⏳';
       var txt = document.createElement('span');
       txt.className = 'qt';
-      txt.textContent = t;
-      txt.title = t;
+      var label = t + (imgs.length ? ' 📎×' + imgs.length : '');
+      txt.textContent = label || '📎 изображение';
+      txt.title = 'Нажмите, чтобы вернуть в поле ввода и отредактировать.\n\n' + t;
+      // редактирование: вернуть текст и картинки в поле ввода
+      txt.addEventListener('click', function () {
+        vscode.postMessage({ type: 'dequeue', index: i });
+        inputEl.value = t;
+        pendingImages = imgs.slice();
+        renderImgChips();
+        inputEl.focus();
+      });
+      var up = document.createElement('span');
+      up.className = 'qm';
+      up.textContent = '↑';
+      up.title = 'Выше в очереди';
+      up.addEventListener('click', function () {
+        vscode.postMessage({ type: 'moveQueue', index: i, dir: -1 });
+      });
+      var down = document.createElement('span');
+      down.className = 'qm';
+      down.textContent = '↓';
+      down.title = 'Ниже в очереди';
+      down.addEventListener('click', function () {
+        vscode.postMessage({ type: 'moveQueue', index: i, dir: 1 });
+      });
       var x = document.createElement('span');
       x.className = 'qx';
       x.textContent = '✕';
@@ -1786,6 +1826,8 @@ function getHtml(webview: vscode.Webview): string {
       });
       chip.appendChild(n);
       chip.appendChild(txt);
+      chip.appendChild(up);
+      chip.appendChild(down);
       chip.appendChild(x);
       queueRow.appendChild(chip);
     });
