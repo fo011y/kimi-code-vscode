@@ -222,15 +222,30 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     // иначе начальные сообщения (сессии, история) могут прийти
     // до установки обработчика в странице и потеряться — чат выглядит пустым.
     let inited = false;
-    const initOnce = () => {
-      if (inited) return;
-      inited = true;
+    let alive = false; // страница подала признаки жизни — сообщения доходят
+    const tryInit = (tag: string) => {
+      if (alive) return;
+      if (!inited) {
+        inited = true;
+        this.log.appendLine(`[panel] init (${tag})`);
+      } else {
+        this.log.appendLine(`[panel] повтор init (${tag}) — страница молчит`);
+      }
       this.initWebview(webview);
     };
     webview.onDidReceiveMessage((m) => {
       if (m?.type === 'ready') {
         this.log.appendLine('[panel] ready от веб-панели');
-        initOnce();
+        alive = true;
+        if (!inited) {
+          inited = true;
+          this.initWebview(webview);
+        }
+        return;
+      }
+      if (m?.type === 'initAck') {
+        alive = true;
+        this.log.appendLine('[panel] ack: ' + String(m.what));
         return;
       }
       if (m?.type === 'webviewError') {
@@ -240,7 +255,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       }
       void this.onMessage(m);
     });
-    setTimeout(initOnce, 1500); // запасной вариант на случай потери 'ready'
+    setTimeout(() => tryInit('fallback 1500ms'), 1500);
+    setTimeout(() => tryInit('retry 3000ms'), 3000);
+    setTimeout(() => tryInit('retry 6000ms'), 6000);
   }
 
   private initWebview(webview: vscode.Webview): void {
@@ -1020,7 +1037,66 @@ function nonce(): string {
   return s;
 }
 
+const DEBUG_PROBE_JS = `
+try { window.__kapi = acquireVsCodeApi(); } catch (e) { document.body.textContent = 'NO API: ' + e; }
+if (window.__kapi) {
+  window.__kapi.postMessage({ type: 'ready' });
+  setInterval(function () { try { window.__kapi.postMessage({ type: 'ready' }); } catch (_) {} }, 1000);
+  window.addEventListener('message', function (e) {
+    document.body.textContent = 'GOT: ' + JSON.stringify(e.data).slice(0, 200);
+    try { window.__kapi.postMessage({ type: 'initAck', what: String(e.data && e.data.type) }); } catch (_) {}
+  });
+}
+`;
+
+/** Режим отладки веб-панели из файла .webview-debug (рядом с package.json): minimal | csp | probe | noscript. */
+function webviewDebugMode(): string {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const fs = require('fs') as typeof import('fs');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const path = require('path') as typeof import('path');
+    const flag = path.join(__dirname, '..', '.webview-debug');
+    if (fs.existsSync(flag)) return String(fs.readFileSync(flag, 'utf8')).trim() || 'minimal';
+  } catch {
+    // нет отладки
+  }
+  return '';
+}
+
 function getHtml(webview: vscode.Webview): string {
+  const debugMode = webviewDebugMode();
+  if (debugMode === 'minimal' || debugMode === 'csp') {
+    const dn = nonce();
+    const head =
+      debugMode === 'csp'
+        ? `<head><meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="${[
+            `default-src 'none'`,
+            `style-src 'unsafe-inline'`,
+            `img-src data: https:`,
+            `script-src 'nonce-${dn}'`,
+          ].join('; ')}"></head>`
+        : '<head></head>';
+    return `<!DOCTYPE html><html>${head}<body style="color:#0f0;background:#000">KIMI DEBUG PAGE
+<script nonce="${dn}">${DEBUG_PROBE_JS}</script></body></html>`;
+  }
+  if (debugMode === 'cal') {
+    // Калибровка: ловушка в отдельном теге + заведомо битый токен на известной строке.
+    // По номеру строки в ошибке вычисляем, сколько строк VS Code добавил в <head>.
+    const dn = nonce();
+    const trap = `window.addEventListener('error', function (e) {
+  var t = String(e.message || e) + ' @line ' + (e.lineno || 0) + ' col ' + (e.colno || 0);
+  try { acquireVsCodeApi().postMessage({ type: 'webviewError', text: t }); } catch (_) {}
+});`;
+    const head = [
+      '<!DOCTYPE html>', '<html>', '<head>', '</head>', '<body>',
+      `<script nonce="${dn}">${trap}</` + 'script>',
+    ];
+    const pad = Array(50).fill('');
+    const bad = [`<script nonce="${dn}">`, 'var ok1 = 1;', 'var ok2 = 2;', 'var broken = @badtoken;', '</' + 'script>', '</body>', '</html>'];
+    return [...head, ...pad, ...bad].join('\n');
+  }
   const n = nonce();
   const csp = [
     `default-src 'none'`,
@@ -1029,7 +1105,7 @@ function getHtml(webview: vscode.Webview): string {
     `script-src 'nonce-${n}'`,
   ].join('; ');
 
-  return `<!DOCTYPE html>
+  const html = `<!DOCTYPE html>
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
@@ -1258,16 +1334,16 @@ function getHtml(webview: vscode.Webview): string {
     <div id="usage"></div>
   </div>
 <script nonce="${n}">
-var vscode = acquireVsCodeApi();
 // Диагностика: любая JS-ошибка страницы уходит хосту (Output-канал «Kimi Code»).
 window.addEventListener('error', function (e) {
-  try {
-    vscode.postMessage({
-      type: 'webviewError',
-      text: String((e.error && e.error.stack) || e.message || e),
-    });
-  } catch (_) {}
+  var t = String((e.error && e.error.stack) || e.message || e);
+  try { if (window.__kapi) window.__kapi.postMessage({ type: 'webviewError', text: t }); } catch (_) {}
+  try { document.title = 'Kimi: ' + t.split('\\n')[0]; } catch (_) {}
 });
+try { window.__kapi = acquireVsCodeApi(); } catch (e) {
+  document.title = 'Kimi: acquireVsCodeApi failed: ' + e;
+}
+var vscode = window.__kapi;
 (function () {
   var messagesEl = document.getElementById('messages');
   var tabsEl = document.getElementById('tabs');
@@ -1819,7 +1895,7 @@ window.addEventListener('error', function (e) {
       txt.className = 'qt';
       var label = t + (imgs.length ? ' 📎×' + imgs.length : '');
       txt.textContent = label || '📎 изображение';
-      txt.title = 'Нажмите, чтобы вернуть в поле ввода и отредактировать.\n\n' + t;
+      txt.title = 'Нажмите, чтобы вернуть в поле ввода и отредактировать.\\n\\n' + t;
       // редактирование: вернуть текст и картинки в поле ввода
       txt.addEventListener('click', function () {
         vscode.postMessage({ type: 'dequeue', index: i });
@@ -1922,8 +1998,14 @@ window.addEventListener('error', function (e) {
     }
   });
 
+  var acked = {};
   window.addEventListener('message', function (event) {
     var m = event.data;
+    // квитанция хосту: страница жива и обработала сообщение такого типа
+    if (m && m.type && !acked[m.type]) {
+      acked[m.type] = true;
+      try { vscode.postMessage({ type: 'initAck', what: String(m.type) }); } catch (_) {}
+    }
     switch (m.type) {
       case 'user':
         currentEl = null;
@@ -2028,10 +2110,46 @@ window.addEventListener('error', function (e) {
   });
 
   inputEl.focus();
-  // сигнал хосту: страница загружена, можно слать начальное состояние
+  // сигнал хосту: страница загружена, можно слать начальное состояние.
+  // Шлём несколько раз — на случай гонок при перезапуске хоста расширений.
   vscode.postMessage({ type: 'ready' });
+  var readyN = 0;
+  var readyTimer = setInterval(function () {
+    try { vscode.postMessage({ type: 'ready' }); } catch (_) {}
+    if (++readyN >= 4) clearInterval(readyTimer);
+  }, 500);
 })();
 </script>
 </body>
 </html>`;
+  // Отладочные режимы: probe — наш HTML, но скрипт заменён на минимальный пробник;
+  // noscript — наш HTML вообще без скрипта;
+  // split — полная страница, но ловушка ошибок вынесена в ОТДЕЛЬНЫЙ script-тег
+  // (если основной скрипт мёртв — увидим причину: синтаксис или рантайм).
+  if (debugMode === 'dump' || debugMode === 'split') {
+    const dumpJs = `
+try { window.__kapi = acquireVsCodeApi(); } catch (e) {}
+window.addEventListener('error', function (e) {
+  var t = String((e.error && e.error.stack) || e.message || e) + ' @' + (e.filename || '') + ':' + (e.lineno || 0) + ':' + (e.colno || 0);
+  try { if (window.__kapi) window.__kapi.postMessage({ type: 'webviewError', text: t }); } catch (_) {}
+});
+window.addEventListener('DOMContentLoaded', function () {
+  try {
+    var h = document.documentElement.outerHTML;
+    for (var i = 0; i < h.length; i += 3000) {
+      window.__kapi.postMessage({ type: 'initAck', what: 'DUMP' + ('0000' + i).slice(-5) + '|' + h.slice(i, i + 3000) });
+    }
+    window.__kapi.postMessage({ type: 'initAck', what: 'DUMPEND' });
+  } catch (_) {}
+});
+`;
+    const trap2 = `<script nonce="${n}">${dumpJs}</` + `script><script nonce="${n}">`;
+    return html.replace(/<script nonce="[A-Za-z0-9]+">/, trap2);
+  }
+  if (debugMode === 'probe' || debugMode === 'noscript') {
+    const replacement =
+      debugMode === 'probe' ? `<script nonce="${n}">${DEBUG_PROBE_JS}</` + 'script>' : '';
+    return html.replace(/<script nonce="[A-Za-z0-9]+">[\s\S]*?<\/script>/, replacement);
+  }
+  return html;
 }
