@@ -293,6 +293,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       case 'lightning':
         this.sendLightning(String(m.text ?? ''), !!m.agent);
         break;
+      case 'nudge':
+        this.nudge(!!m.agent);
+        break;
       case 'cancel':
         this.abort?.abort();
         break;
@@ -510,6 +513,23 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     } else {
       this.pumpQueue();
     }
+  }
+
+  /**
+   * «Пнуть» зависшего агента: прервать текущий (возможно, подвисший) запрос
+   * и сразу попросить продолжить с места остановки.
+   */
+  private nudge(agent: boolean): void {
+    if (!this.busy) {
+      this.pumpQueue(); // вдруг в очереди что-то застряло
+      return;
+    }
+    this.lightningNext = {
+      text: 'Продолжай с того места, где остановился. Если задача уже полностью завершена — кратко сообщи об этом.',
+      agent,
+    };
+    this.post({ type: 'info', text: '👢 Агент пнут: прерываю зависший запрос и прошу продолжить…' });
+    this.abort?.abort();
   }
 
   /** Горячая клавиша: вставить ссылку на выделенный файл в поле ввода чата. */
@@ -1105,6 +1125,7 @@ function getHtml(webview: vscode.Webview): string {
       <button id="newChat" class="secondary" title="Новая сессия">Новый чат</button>
       <span class="spacer"></span>
       <button id="lightning" class="secondary" title="Молния: прервать текущую задачу и отправить сообщение немедленно">⚡</button>
+      <button id="nudge" class="secondary" title="Пнуть: прервать зависший запрос и попросить агента продолжить" disabled>👢</button>
       <button id="send">Отправить</button>
     </div>
     <div class="row">
@@ -1140,6 +1161,7 @@ function getHtml(webview: vscode.Webview): string {
   var searchResults = document.getElementById('searchResults');
   var queueRow = document.getElementById('queueRow');
   var lightningBtn = document.getElementById('lightning');
+  var nudgeBtn = document.getElementById('nudge');
   var defaultPlaceholder = inputEl.placeholder;
 
   var settings = { ctrlEnter: false, timestamps: false };
@@ -1620,8 +1642,9 @@ function getHtml(webview: vscode.Webview): string {
     sendBtn.title = b
       ? 'Прервать текущую задачу (сообщения из очереди продолжат выполняться)'
       : '';
+    nudgeBtn.disabled = !b;
     inputEl.placeholder = b
-      ? 'Агент занят: Enter — в очередь, ⚡ — прервать и отправить сразу'
+      ? 'Агент занят: Enter — в очередь, ⚡ — прервать и отправить сразу, 👢 — пнуть'
       : defaultPlaceholder;
     inputEl.disabled = false;
   }
@@ -1658,6 +1681,11 @@ function getHtml(webview: vscode.Webview): string {
     if (!text) return;
     inputEl.value = '';
     vscode.postMessage({ type: 'lightning', text: text, agent: agentEl.checked });
+  });
+
+  // «Пнуть»: прервать зависший запрос и попросить агента продолжить
+  nudgeBtn.addEventListener('click', function () {
+    if (busy) vscode.postMessage({ type: 'nudge', agent: agentEl.checked });
   });
   newChatBtn.addEventListener('click', function () {
     vscode.postMessage({ type: 'newChat' });
