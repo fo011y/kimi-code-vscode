@@ -217,6 +217,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     this.webviews.add(webview);
     webview.options = { enableScripts: true };
     webview.html = getHtml(webview);
+    this.log.appendLine('[panel] webview attached, html set');
     // Инициализируем только после сигнала 'ready' от webview:
     // иначе начальные сообщения (сессии, история) могут прийти
     // до установки обработчика в странице и потеряться — чат выглядит пустым.
@@ -228,7 +229,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     };
     webview.onDidReceiveMessage((m) => {
       if (m?.type === 'ready') {
+        this.log.appendLine('[panel] ready от веб-панели');
         initOnce();
+        return;
+      }
+      if (m?.type === 'webviewError') {
+        this.log.appendLine('[panel] ОШИБКА веб-панели: ' + String(m.text ?? ''));
+        void vscode.window.showErrorMessage('Kimi: ошибка панели чата — ' + String(m.text ?? '').split('\n')[0]);
         return;
       }
       void this.onMessage(m);
@@ -237,6 +244,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   }
 
   private initWebview(webview: vscode.Webview): void {
+    this.log.appendLine('[panel] initWebview: отправка начального состояния');
     const send = (m: unknown) => void webview.postMessage(m);
     send({ type: 'mode', mode: getPermissionMode() });
     send({
@@ -647,7 +655,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   }
 
   private post(m: unknown): void {
-    for (const w of this.webviews) void w.postMessage(m);
+    for (const w of this.webviews) {
+      try {
+        void w.postMessage(m);
+      } catch {
+        // панель уже уничтожена (например, вкладка редактора закрыта) — выбрасываем её
+        this.webviews.delete(w);
+      }
+    }
   }
 
   // ---------- контекст ----------
@@ -1010,6 +1025,7 @@ function getHtml(webview: vscode.Webview): string {
   const csp = [
     `default-src 'none'`,
     `style-src 'unsafe-inline'`,
+    `img-src data: https:`,
     `script-src 'nonce-${n}'`,
   ].join('; ');
 
@@ -1242,8 +1258,17 @@ function getHtml(webview: vscode.Webview): string {
     <div id="usage"></div>
   </div>
 <script nonce="${n}">
+var vscode = acquireVsCodeApi();
+// Диагностика: любая JS-ошибка страницы уходит хосту (Output-канал «Kimi Code»).
+window.addEventListener('error', function (e) {
+  try {
+    vscode.postMessage({
+      type: 'webviewError',
+      text: String((e.error && e.error.stack) || e.message || e),
+    });
+  } catch (_) {}
+});
 (function () {
-  var vscode = acquireVsCodeApi();
   var messagesEl = document.getElementById('messages');
   var tabsEl = document.getElementById('tabs');
   var inputEl = document.getElementById('input');
