@@ -13,17 +13,17 @@ A VS Code extension that embeds [Kimi](https://platform.moonshot.ai) (Moonshot A
 
 ## 📥 Download & Install
 
-**➡️ [Download kimi-code-0.7.0.vsix (latest release)](https://github.com/fo011y/kimi-code-vscode/releases/latest/download/kimi-code-0.7.0.vsix)**
+**➡️ [Download kimi-code-0.8.0.vsix (latest release)](https://github.com/fo011y/kimi-code-vscode/releases/latest/download/kimi-code-0.8.0.vsix)**
 
 Then install:
 
 ```bash
-code --install-extension kimi-code-0.7.0.vsix
+code --install-extension kimi-code-0.8.0.vsix
 ```
 
 Or in VS Code: `Ctrl+Shift+P` → **Extensions: Install from VSIX…** → pick the downloaded file.
 
-## 🆕 What's new in 0.7.0
+## 🆕 What's new in 0.8.0
 
 - **Sign in via the Kimi website (OAuth)** — no API key, same flow as the official Kimi Code CLI; tokens refresh automatically.
 - **Message queue & lightning ⚡** — drop more ideas while the agent is thinking; ⚡ aborts the task and sends instantly.

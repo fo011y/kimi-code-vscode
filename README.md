@@ -13,17 +13,17 @@
 
 ## 📥 Скачать и установить
 
-**➡️ [Скачать kimi-code-0.7.0.vsix (последний релиз)](https://github.com/fo011y/kimi-code-vscode/releases/latest/download/kimi-code-0.7.0.vsix)**
+**➡️ [Скачать kimi-code-0.8.0.vsix (последний релиз)](https://github.com/fo011y/kimi-code-vscode/releases/latest/download/kimi-code-0.8.0.vsix)**
 
 Затем установите:
 
 ```bash
-code --install-extension kimi-code-0.7.0.vsix
+code --install-extension kimi-code-0.8.0.vsix
 ```
 
 Или в VS Code: `Ctrl+Shift+P` → **Extensions: Install from VSIX…** → выберите скачанный файл.
 
-## 🆕 Новое в 0.7.0
+## 🆕 Новое в 0.8.0
 
 - **Вход через сайт Kimi (OAuth)** — без API-ключа, как в официальном Kimi Code CLI; токены обновляются сами.
 - **Очередь сообщений и «молния» ⚡** — докидывайте идеи, пока агент думает; ⚡ прерывает задачу и отправляет сообщение мгновенно.
