@@ -1,6 +1,6 @@
 import { ApiConfig, ChatMessage, streamChat, TokenUsage } from './api';
 import { executeTool, toolDefinitions } from './tools';
-import { getAutoCompactTokens, getMaxAgentSteps, isPlanMode } from './config';
+import { getAutoCompactTokens, getAutoContinues, getMaxAgentSteps, isPlanMode } from './config';
 
 export interface AgentHooks {
   onToken(text: string): void;
@@ -99,70 +99,88 @@ export async function runAgentLoop(
   const tools = toolDefinitions(plan); // в plan-режиме — только чтение
   const maxSteps = getMaxAgentSteps();
   const compactAt = getAutoCompactTokens(); // 0 = автоархивация выключена
+  const maxContinues = getAutoContinues(); // 0 = без автопродолжения
 
-  for (let step = 0; step < maxSteps; step++) {
-    if (hooks.signal?.aborted) {
-      const err = new Error('aborted');
-      err.name = 'AbortError';
-      throw err;
-    }
+  let continues = 0;
+  for (;;) {
+    for (let step = 0; step < maxSteps; step++) {
+      if (hooks.signal?.aborted) {
+        const err = new Error('aborted');
+        err.name = 'AbortError';
+        throw err;
+      }
 
-    let res;
-    try {
-      res = await streamChat(cfg, messages, {
-        tools,
-        onToken: hooks.onToken,
-        signal: hooks.signal,
-      });
-    } catch (e) {
-      // переполнение контекста → архивируем и повторяем шаг
+      let res;
+      try {
+        res = await streamChat(cfg, messages, {
+          tools,
+          onToken: hooks.onToken,
+          signal: hooks.signal,
+        });
+      } catch (e) {
+        // переполнение контекста → архивируем и повторяем шаг
+        if (
+          compactAt > 0 &&
+          isContextOverflowError(e) &&
+          !hooks.signal?.aborted &&
+          (await compactContext(cfg, messages, hooks.onInfo))
+        ) {
+          step--;
+          continue;
+        }
+        throw e;
+      }
+      if (res.usage) hooks.onUsage?.(res.usage);
+
+      const assistantMsg: ChatMessage = { role: 'assistant' };
+      if (res.content) assistantMsg.content = res.content;
+      if (res.toolCalls.length > 0) assistantMsg.tool_calls = res.toolCalls;
+      messages.push(assistantMsg);
+
+      if (res.toolCalls.length === 0) return; // финальный ответ — задача выполнена
+
+      for (const call of res.toolCalls) {
+        const name = call.function.name;
+        hooks.onTool(name, 'running');
+        let result: string;
+        try {
+          result = await executeTool(name, call.function.arguments);
+          hooks.onTool(name, 'done');
+        } catch (e: any) {
+          result = `Ошибка инструмента: ${e?.message ?? String(e)}`;
+          hooks.onTool(name, 'error', e?.message);
+        }
+        messages.push({
+          role: 'tool',
+          tool_call_id: call.id,
+          name,
+          content: result.slice(0, 20000),
+        });
+      }
+
+      // превентивная архивация: промпт уже раздут — сжимаем до следующего шага
       if (
         compactAt > 0 &&
-        isContextOverflowError(e) &&
-        !hooks.signal?.aborted &&
-        (await compactContext(cfg, messages, hooks.onInfo))
+        res.usage &&
+        res.usage.prompt_tokens > compactAt
       ) {
-        step--;
-        continue;
+        await compactContext(cfg, messages, hooks.onInfo);
       }
-      throw e;
-    }
-    if (res.usage) hooks.onUsage?.(res.usage);
-
-    const assistantMsg: ChatMessage = { role: 'assistant' };
-    if (res.content) assistantMsg.content = res.content;
-    if (res.toolCalls.length > 0) assistantMsg.tool_calls = res.toolCalls;
-    messages.push(assistantMsg);
-
-    if (res.toolCalls.length === 0) return; // финальный ответ
-
-    for (const call of res.toolCalls) {
-      const name = call.function.name;
-      hooks.onTool(name, 'running');
-      let result: string;
-      try {
-        result = await executeTool(name, call.function.arguments);
-        hooks.onTool(name, 'done');
-      } catch (e: any) {
-        result = `Ошибка инструмента: ${e?.message ?? String(e)}`;
-        hooks.onTool(name, 'error', e?.message);
-      }
-      messages.push({
-        role: 'tool',
-        tool_call_id: call.id,
-        name,
-        content: result.slice(0, 20000),
-      });
     }
 
-    // превентивная архивация: промпт уже раздут — сжимаем до следующего шага
-    if (
-      compactAt > 0 &&
-      res.usage &&
-      res.usage.prompt_tokens > compactAt
-    ) {
-      await compactContext(cfg, messages, hooks.onInfo);
-    }
+    // Лимит шагов исчерпан, но задача не завершена: автопродолжение —
+    // агент работает до полного выполнения, без остановок.
+    if (hooks.signal?.aborted || continues >= maxContinues) break;
+    continues++;
+    hooks.onInfo?.(
+      `🔁 Лимит шагов (${maxSteps}) исчерпан — продолжаю работу автоматически (цикл ${continues}/${maxContinues})…`
+    );
+    messages.push({
+      role: 'user',
+      content:
+        'Продолжай выполнение задачи с того места, где остановился. ' +
+        'Не переспрашивай и не останавливайся, пока задача не будет полностью выполнена.',
+    });
   }
 
   const warn = '\n\n⚠️ Достигнут лимит шагов агента. Ответ может быть неполным — спросите «продолжи».';

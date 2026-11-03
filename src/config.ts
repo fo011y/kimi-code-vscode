@@ -18,6 +18,15 @@ export function getMaxAgentSteps(): number {
   return vscode.workspace.getConfiguration('kimi').get<number>('maxAgentSteps', 25);
 }
 
+/**
+ * Автопродолжение при лимите шагов: сколько раз агент сам продолжает
+ * работу после исчерпания maxAgentSteps (работает до полного выполнения задачи).
+ * 0 — выключено (старое поведение: предупреждение и остановка).
+ */
+export function getAutoContinues(): number {
+  return vscode.workspace.getConfiguration('kimi').get<number>('maxAutoContinues', 50);
+}
+
 export function getModel(): string {
   return vscode.workspace.getConfiguration('kimi').get<string>('model', 'kimi-k2-0905-preview');
 }

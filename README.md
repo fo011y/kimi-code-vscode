@@ -113,7 +113,8 @@ Kimi в статус-баре — внизу справа, рядом с Claude 
 | `kimi.model` | `kimi-k2-0905-preview` | Модель (например `kimi-latest`, `moonshot-v1-32k`) |
 | `kimi.temperature` | `0.6` | Температура генерации |
 | `kimi.maxTokens` | `8192` | Максимум токенов в ответе |
-| `kimi.maxAgentSteps` | `25` | Лимит шагов агента за один запрос |
+| `kimi.maxAgentSteps` | `25` | Лимит шагов агента за один цикл |
+| `kimi.maxAutoContinues` | `50` | Автопродолжение: сколько раз агент сам продолжает после лимита шагов — работает до полного выполнения задачи; `0` — выключить |
 | `kimi.permissionMode` | `ask` | Режим автономности: `plan` / `ask` / `autoEdit` / `fullAuto` |
 | `kimi.autoPush` | `false` | Автокоммит и пуш на GitHub после задачи агента (в режиме `fullAuto` — всегда) |
 | `kimi.deployCommand` | `""` | Команда деплоя проекта (shell) |

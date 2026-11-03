@@ -195,7 +195,12 @@
         "kimi.maxAgentSteps": {
           "type": "number",
           "default": 25,
-          "description": "Максимум шагов агента за один запрос"
+          "description": "Максимум шагов агента за один цикл (после исчерпания срабатывает автопродолжение, см. kimi.maxAutoContinues)"
+        },
+        "kimi.maxAutoContinues": {
+          "type": "number",
+          "default": 50,
+          "description": "Автопродолжение: сколько раз агент сам продолжает работу после исчерпания лимита шагов — работает до полного выполнения задачи, без остановок. 0 — выключить"
         },
         "kimi.permissionMode": {
           "type": "string",

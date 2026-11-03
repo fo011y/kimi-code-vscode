@@ -113,7 +113,8 @@ This uses the same Device Code OAuth flow (RFC 8628) as the official Kimi Code C
 | `kimi.model` | `kimi-k2-0905-preview` | Model (e.g. `kimi-latest`, `moonshot-v1-32k`) |
 | `kimi.temperature` | `0.6` | Sampling temperature |
 | `kimi.maxTokens` | `8192` | Max tokens per response |
-| `kimi.maxAgentSteps` | `25` | Agent step limit per request |
+| `kimi.maxAgentSteps` | `25` | Agent step limit per cycle |
+| `kimi.maxAutoContinues` | `50` | Auto-continue: how many times the agent resumes after hitting the step limit — works until the task is fully done; `0` — disable |
 | `kimi.permissionMode` | `ask` | Autonomy: `plan` / `ask` / `autoEdit` / `fullAuto` |
 | `kimi.autoPush` | `false` | Auto commit & push to GitHub after agent tasks (always on in `fullAuto` mode) |
 | `kimi.deployCommand` | `""` | Deploy command (shell) |
