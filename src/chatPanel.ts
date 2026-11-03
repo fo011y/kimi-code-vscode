@@ -11,6 +11,7 @@ import {
   getAttachOpenFile,
   getAttachSelection,
   getAutoCompactTokens,
+  getAutoNudgeSeconds,
   getModel,
   getPermissionMode,
   getShowTimestamps,
@@ -78,6 +79,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   private busy = false;
   private sessionTokens = 0;
   private lastPromptTokens = 0;
+  private watchdog?: NodeJS.Timeout;
+  private lastActivity = 0;
+  private toolsRunning = 0;
+  private autoNudges = 0;
 
   constructor(
     private readonly context: vscode.ExtensionContext,
@@ -810,6 +815,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       let requestTokens = 0;
       const onToken = (t: string) => {
         acc += t;
+        this.lastActivity = Date.now();
+        this.autoNudges = 0; // API отвечает — сбрасываем счётчик авто-пинков
         this.post({ type: 'delta', text: t });
       };
       const onUsage = (u: TokenUsage) => {
@@ -825,12 +832,50 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         });
       };
 
+      // Сторожевой таймер «авто-пинка»: если API молчит дольше порога —
+      // прерываем зависший запрос и просим агента продолжить (до 3 раз подряд).
+      // Пока выполняется инструмент (команда в терминале и т.п.), таймер на паузе.
+      const nudgeSec = getAutoNudgeSeconds();
+      this.toolsRunning = 0;
+      this.lastActivity = Date.now();
+      clearInterval(this.watchdog);
+      this.watchdog = undefined;
+      if (nudgeSec > 0) {
+        this.watchdog = setInterval(() => {
+          if (!this.busy) return;
+          if (this.toolsRunning > 0) {
+            this.lastActivity = Date.now();
+            return;
+          }
+          if (Date.now() - this.lastActivity < nudgeSec * 1000) return;
+          this.lastActivity = Date.now();
+          this.autoNudges += 1;
+          if (this.autoNudges > 3) {
+            this.post({
+              type: 'info',
+              text: '⛔ API не отвечает после 3 авто-пинков — задача остановлена. Проверьте сеть/подписку и повторите.',
+            });
+            this.autoNudges = 0;
+            this.abort?.abort();
+            return;
+          }
+          this.post({
+            type: 'info',
+            text: `👢 Авто-пинок: ${nudgeSec} с без ответа от API — перезапускаю запрос (попытка ${this.autoNudges}/3)…`,
+          });
+          this.nudge(agent);
+        }, 5_000);
+      }
+
       if (agent) {
         consumeChangesMade(); // сбросить флаг изменений от прошлой задачи
         await runAgentLoop(cfg, messages, {
           onToken,
           onUsage,
           onTool: (name, status, detail) => {
+            this.lastActivity = Date.now();
+            if (status === 'running') this.toolsRunning += 1;
+            else if (this.toolsRunning > 0) this.toolsRunning -= 1;
             this.log.appendLine(`[tool] ${name} → ${status}${detail ? `: ${detail}` : ''}`);
             this.post({ type: 'tool', name, status, detail });
           },
@@ -909,6 +954,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       }
     } finally {
       this.busy = false;
+      clearInterval(this.watchdog);
+      this.watchdog = undefined;
       this.pumpQueue(); // отправить «молнию» или следующее сообщение из очереди
     }
   }

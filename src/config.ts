@@ -84,6 +84,15 @@ export function getAutoCompactTokens(): number {
   return vscode.workspace.getConfiguration('kimi').get<number>('autoCompactTokens', 150000);
 }
 
+/**
+ * Авто-пинок зависшего запроса: секунды без ответа от API,
+ * после которых запрос прерывается и агент просится продолжить (до 3 раз).
+ * 0 — выключено. Во время выполнения инструментов таймер на паузе.
+ */
+export function getAutoNudgeSeconds(): number {
+  return vscode.workspace.getConfiguration('kimi').get<number>('autoNudgeSeconds', 90);
+}
+
 /** Прикреплять выделенный код к сообщениям. */
 export function getAttachSelection(): boolean {
   return vscode.workspace.getConfiguration('kimi').get<boolean>('attachSelection', true);
