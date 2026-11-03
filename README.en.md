@@ -62,6 +62,7 @@ Kimi in the status bar — bottom right, next to Claude Code:
 - **Session history** — conversations survive VS Code restarts (per project). Opening the chat automatically restores the last active session with its history (up to 100 messages).
 - **History search** — a 🔍 button in the session tabs: searches across all project sessions, highlights matches; clicking a result switches to that session and scrolls to the found message.
 - **Message queue & lightning** — while the agent is busy, Enter queues the message (sent automatically afterwards; the queue is listed above the input, each item removable via ✕). The ⚡ button aborts the current task and sends your message immediately.
+- **Auto-archiving at the token limit** — when the context approaches the model limit (setting `kimi.autoCompactTokens`), the agent compresses the middle of the conversation into a summary and keeps working without losing the task thread. Works inside long agent tasks, between requests, and on context-overflow errors (retry after archiving).
 - **Token counter** — per-request and per-session usage under the input box.
 - **GitHub push** — `git_push` agent tool and `kimi.autoPush` setting: automatic commit + push after agent tasks. In **Full auto** mode pushing always happens, regardless of the setting.
 - **Project deploy** — `deploy` agent tool and `kimi.autoDeploy` setting with `kimi.deployCommand` (any command: `npm run deploy`, `vercel --prod`, `netlify deploy --prod`…). In **Full auto** mode deploy always runs if `kimi.deployCommand` is set.
@@ -103,6 +104,7 @@ This uses the same Device Code OAuth flow (RFC 8628) as the official Kimi Code C
 | `kimi.deployCommand` | `""` | Deploy command (shell) |
 | `kimi.autoDeploy` | `false` | Auto deploy after agent tasks, after auto-push (always on in `fullAuto` if a command is set) |
 | `kimi.respectGitIgnore` | `true` | Respect `.gitignore` when walking files |
+| `kimi.autoCompactTokens` | `150000` | Auto-archive the session when the prompt exceeds this size (tokens); `0` — disable |
 | `kimi.attachSelection` | `true` | Attach selected code to messages |
 | `kimi.attachOpenFile` | `false` | Attach the whole open file when nothing is selected |
 | `kimi.useCtrlEnterToSend` | `false` | Send with Ctrl+Enter |

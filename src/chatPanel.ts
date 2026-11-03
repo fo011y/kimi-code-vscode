@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { ApiConfig, ChatMessage, FALLBACK_MODELS, listModels, streamChat, TokenUsage } from './api';
-import { runAgentLoop } from './agent';
+import { runAgentLoop, isContextOverflowError } from './agent';
 import { getAuthState } from './auth';
 import { CheckpointEntry, CheckpointStore } from './checkpoints';
 import { autoDeployIfEnabled, autoPushIfEnabled, consumeChangesMade, setSnapshotHook } from './tools';
@@ -10,6 +10,7 @@ import {
   getApiConfig,
   getAttachOpenFile,
   getAttachSelection,
+  getAutoCompactTokens,
   getModel,
   getPermissionMode,
   getShowTimestamps,
@@ -30,6 +31,7 @@ const HELP_TEXT = [
   '/plan, /ask, /auto, /fullauto — переключить режим автономности',
   '@путь/к/файлу — прикрепить файл к вопросу',
   'Пока агент занят: Enter — сообщение в очередь, ⚡ — прервать и отправить сразу',
+  'При лимите контекста сессия архивируется автоматически, работа продолжается',
 ].join('\n');
 
 interface Session {
@@ -75,6 +77,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   private abort?: AbortController;
   private busy = false;
   private sessionTokens = 0;
+  private lastPromptTokens = 0;
 
   constructor(
     private readonly context: vscode.ExtensionContext,
@@ -697,17 +700,20 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
   }
 
-  /** /compact: сжать историю диалога в сводку через модель. */
-  private async compactHistory(): Promise<void> {
+  /** /compact: сжать историю диалога в сводку через модель. auto=true — автоархивация при лимите токенов. */
+  private async compactHistory(auto = false): Promise<void> {
     const hist = this.active().history;
     if (hist.length === 0) {
-      this.post({ type: 'info', text: 'История пуста — сжимать нечего.' });
+      if (!auto) this.post({ type: 'info', text: 'История пуста — сжимать нечего.' });
       return;
     }
     const auth = await ensureAuth(this.context);
     if (!auth) return;
     const cfg: ApiConfig = { ...getApiConfig(), apiKey: auth.token, baseUrl: auth.baseUrl };
-    this.post({ type: 'info', text: '🗜 Сжимаю историю диалога…' });
+    this.post({
+      type: 'info',
+      text: auto ? '🗜 Лимит токенов — архивирую сессию и продолжаю работу…' : '🗜 Сжимаю историю диалога…',
+    });
     try {
       const transcript = hist
         .map((m) => `${m.role}: ${m.content ?? ''}`)
@@ -728,7 +734,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       this.saveSessions();
       this.post({
         type: 'info',
-        text: `🗜 История сжата в сводку (${res.usage?.total_tokens ?? '?'} токенов).`,
+        text: `🗜 Сессия заархивирована в сводку (${res.usage?.total_tokens ?? '?'} токенов)${auto ? ' — работа продолжается.' : '.'}`,
       });
     } catch (e) {
       this.post({ type: 'error', text: e instanceof Error ? e.message : String(e) });
@@ -757,6 +763,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       }
       const cfg: ApiConfig = { ...getApiConfig(), apiKey: auth.token, baseUrl: auth.baseUrl };
 
+      // автоархивация сессии: прошлый запрос уже упирался в лимит контекста —
+      // сжимаем историю заранее, чтобы этот запрос прошёл, и продолжаем работу
+      const compactAt = getAutoCompactTokens();
+      if (compactAt > 0 && this.lastPromptTokens > compactAt && this.active().history.length > 2) {
+        this.lastPromptTokens = 0;
+        await this.compactHistory(true);
+      }
+
       const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
       const plan = isPlanMode();
       const userContent = await this.buildUserContent(userText);
@@ -775,6 +789,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       const onUsage = (u: TokenUsage) => {
         requestTokens += u.total_tokens;
         this.sessionTokens += u.total_tokens;
+        this.lastPromptTokens = u.prompt_tokens || u.total_tokens;
         this.post({ type: 'usage', request: requestTokens, session: this.sessionTokens });
       };
 
@@ -786,6 +801,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           onTool: (name, status, detail) => {
             this.log.appendLine(`[tool] ${name} → ${status}${detail ? `: ${detail}` : ''}`);
             this.post({ type: 'tool', name, status, detail });
+          },
+          onInfo: (text) => {
+            this.log.appendLine(`[info] ${text}`);
+            this.post({ type: 'info', text });
           },
           signal: this.abort.signal,
         });
@@ -815,8 +834,26 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         // панель принятия правок: файлы, изменённые агентом за сессию
         if (changed) this.postReviewUpdate();
       } else {
-        const res = await streamChat(cfg, messages, { onToken, signal: this.abort.signal });
-        if (res.usage) onUsage(res.usage);
+        try {
+          const res = await streamChat(cfg, messages, { onToken, signal: this.abort.signal });
+          if (res.usage) onUsage(res.usage);
+        } catch (e) {
+          // переполнение контекста в обычном чате: архивируем сессию и пробуем ещё раз
+          const canCompact =
+            compactAt > 0 &&
+            isContextOverflowError(e) &&
+            !this.abort.signal.aborted &&
+            this.active().history.length > 2;
+          if (!canCompact) throw e;
+          await this.compactHistory(true);
+          const retry: ChatMessage[] = [
+            { role: 'system', content: systemPrompt(root, plan) },
+            ...this.active().history.slice(-20),
+            { role: 'user', content: userContent },
+          ];
+          const res2 = await streamChat(cfg, retry, { onToken, signal: this.abort.signal });
+          if (res2.usage) onUsage(res2.usage);
+        }
       }
 
       // авто-название сессии по первому сообщению

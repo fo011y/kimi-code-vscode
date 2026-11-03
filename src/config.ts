@@ -75,6 +75,15 @@ export function getRespectGitignore(): boolean {
   return vscode.workspace.getConfiguration('kimi').get<boolean>('respectGitIgnore', true);
 }
 
+/**
+ * Порог автоархивации контекста в токенах промпта.
+ * При превышении агент сжимает середину диалога в сводку и продолжает работу.
+ * 0 — выключено.
+ */
+export function getAutoCompactTokens(): number {
+  return vscode.workspace.getConfiguration('kimi').get<number>('autoCompactTokens', 150000);
+}
+
 /** Прикреплять выделенный код к сообщениям. */
 export function getAttachSelection(): boolean {
   return vscode.workspace.getConfiguration('kimi').get<boolean>('attachSelection', true);
