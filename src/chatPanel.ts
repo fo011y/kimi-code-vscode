@@ -1624,8 +1624,17 @@ var vscode = window.__kapi;
     return icon + ' ' + name + (status === 'running' ? '…' : '') + (detail ? ' — ' + detail : '');
   }
 
+  function collapseGroup(g) {
+    g.root.classList.add('collapsed');
+    g.head.textContent =
+      '✅ Шаги агента (' + g.total + ') — нажмите, чтобы развернуть';
+  }
+
   function ensureToolGroup() {
-    if (toolGroup) return toolGroup;
+    // Если после группы шагов появился текст (новый комментарий агента),
+    // следующие инструменты идут в НОВУЮ группу под ним — прежнюю сворачиваем.
+    if (toolGroup && messagesEl.lastElementChild === toolGroup.root) return toolGroup;
+    if (toolGroup) collapseGroup(toolGroup);
     var root = document.createElement('div');
     root.className = 'toolgroup';
     var head = document.createElement('div');
@@ -1681,9 +1690,7 @@ var vscode = window.__kapi;
   /** Свернуть блок инструментов в одну строку после ответа агента. */
   function collapseToolGroup() {
     if (!toolGroup) return;
-    toolGroup.root.classList.add('collapsed');
-    toolGroup.head.textContent =
-      '✅ Шаги агента (' + toolGroup.total + ') — нажмите, чтобы развернуть';
+    collapseGroup(toolGroup);
     toolGroup = null;
   }
 
@@ -2013,16 +2020,25 @@ var vscode = window.__kapi;
         break;
       case 'start':
         currentText = '';
-        currentEl = addMsg('assistant', '');
+        currentEl = null; // пузырь создастся лениво на первом delta — без пустых блоков
         setBusy(true); // задача могла начаться из очереди/«молнии», а не по кнопке
         break;
       case 'delta':
-        if (!currentEl) currentEl = addMsg('assistant', '');
+        if (!currentEl) {
+          currentEl = addMsg('assistant', '');
+          currentText = '';
+        }
         currentText += m.text;
         currentEl.innerHTML = md(currentText);
         scrollDown();
         break;
       case 'tool':
+        // Инструменты разбивают текст агента на части: комментарий после
+        // шагов пойдёт новым пузырём ПОД группой шагов, а не сольётся в стену.
+        if (m.status === 'running') {
+          currentEl = null;
+          currentText = '';
+        }
         addTool(m.name, m.status, m.detail);
         break;
       case 'info':
