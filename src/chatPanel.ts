@@ -1592,12 +1592,16 @@ var vscode = window.__kapi;
     messagesEl.scrollTop = messagesEl.scrollHeight;
   }
 
+  function nowTime() {
+    var d = new Date();
+    return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
+  }
+
   function tsSpan() {
     if (!settings.timestamps) return null;
-    var d = new Date();
     var s = document.createElement('span');
     s.className = 'ts';
-    s.textContent = ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
+    s.textContent = nowTime();
     return s;
   }
 
@@ -1627,7 +1631,7 @@ var vscode = window.__kapi;
   function collapseGroup(g) {
     g.root.classList.add('collapsed');
     g.head.textContent =
-      '✅ Шаги агента (' + g.total + ') — нажмите, чтобы развернуть';
+      '✅ Шаги агента (' + g.total + ')' + g.ts + ' — нажмите, чтобы развернуть';
   }
 
   function ensureToolGroup() {
@@ -1648,7 +1652,10 @@ var vscode = window.__kapi;
     root.appendChild(head);
     root.appendChild(list);
     messagesEl.appendChild(root);
-    toolGroup = { root: root, head: head, list: list, lines: [], total: 0 };
+    toolGroup = {
+      root: root, head: head, list: list, lines: [], total: 0,
+      ts: settings.timestamps ? ' · ' + nowTime() : '',
+    };
     return toolGroup;
   }
 
@@ -1659,7 +1666,7 @@ var vscode = window.__kapi;
       if (!toolGroup.lines[i].done) pending++;
     }
     toolGroup.head.textContent =
-      '🔧 Инструменты (' + toolGroup.total + ')' + (pending > 0 ? ' — выполняется…' : '');
+      '🔧 Инструменты (' + toolGroup.total + ')' + toolGroup.ts + (pending > 0 ? ' — выполняется…' : '');
   }
 
   function addTool(name, status, detail) {

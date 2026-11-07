@@ -125,7 +125,7 @@ export function getUseCtrlEnterToSend(): boolean {
 
 /** Показывать метки времени у сообщений. */
 export function getShowTimestamps(): boolean {
-  return vscode.workspace.getConfiguration('kimi').get<boolean>('showMessageTimestamps', false);
+  return vscode.workspace.getConfiguration('kimi').get<boolean>('showMessageTimestamps', true);
 }
 
 // ---------- единая авторизация: OAuth (сайт) или API-ключ ----------
