@@ -6,6 +6,7 @@ import {
   getApiConfig,
   getAuthQuiet,
   getModel,
+  getOpenInEditor,
   getPermissionMode,
   PERMISSION_MODE_LABELS,
   PermissionMode,
@@ -326,7 +327,11 @@ export function activate(context: vscode.ExtensionContext): void {
 
   cmd('kimi.openInEditor', () => provider.openInEditor());
 
-  cmd('kimi.focus', () => vscode.commands.executeCommand(`${ChatViewProvider.viewId}.focus`));
+  cmd('kimi.focus', () => {
+    // режим «чат в центре» — фокус на вкладку редактора, иначе на сайдбар
+    if (getOpenInEditor()) provider.openInEditor();
+    else void vscode.commands.executeCommand(`${ChatViewProvider.viewId}.focus`);
+  });
 
   cmd('kimi.showLogs', () => logChannel.show());
 }

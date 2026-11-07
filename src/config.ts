@@ -128,6 +128,11 @@ export function getShowTimestamps(): boolean {
   return vscode.workspace.getConfiguration('kimi').get<boolean>('showMessageTimestamps', true);
 }
 
+/** Открывать чат вкладкой в центре редактора (как Claude Code), а не только в боковой панели. */
+export function getOpenInEditor(): boolean {
+  return vscode.workspace.getConfiguration('kimi').get<boolean>('openInEditor', true);
+}
+
 // ---------- единая авторизация: OAuth (сайт) или API-ключ ----------
 
 export interface AuthInfo {

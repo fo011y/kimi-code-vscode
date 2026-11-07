@@ -13,6 +13,7 @@ import {
   getAutoCompactTokens,
   getAutoNudgeSeconds,
   getModel,
+  getOpenInEditor,
   getPermissionMode,
   getShowTimestamps,
   getUseCtrlEnterToSend,
@@ -69,6 +70,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewId = 'kimi.chatView';
 
   private webviews = new Set<vscode.Webview>();
+  private editorPanel?: vscode.WebviewPanel;
   private pending: Array<{ text: string; agent: boolean }> = [];
   private queue: Array<{ text: string; agent: boolean; images?: string[] }> = [];
   private lightningNext: { text: string; agent: boolean; images?: string[] } | null = null;
@@ -199,18 +201,29 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     view.onDidDispose(() => this.webviews.delete(view.webview));
     const queued = this.pending.splice(0);
     for (const item of queued) void this.handleAsk(item.text, item.agent);
+    // режим «чат в центре»: при открытии панели сразу показываем вкладку в редакторе
+    if (getOpenInEditor()) this.openInEditor();
   }
 
   /** Открыть чат во вкладке редактора (та же сессия, зеркало сайдбара). */
   openInEditor(): void {
+    if (this.editorPanel) {
+      this.editorPanel.reveal(vscode.ViewColumn.Active);
+      return;
+    }
     const panel = vscode.window.createWebviewPanel(
       'kimi.chatPanel',
       'Kimi Чат',
       vscode.ViewColumn.Active,
       { enableScripts: true, retainContextWhenHidden: true }
     );
+    panel.iconPath = vscode.Uri.joinPath(this.context.extensionUri, 'media', 'icon.png');
+    this.editorPanel = panel;
     this.attachWebview(panel.webview);
-    panel.onDidDispose(() => this.webviews.delete(panel.webview));
+    panel.onDidDispose(() => {
+      this.webviews.delete(panel.webview);
+      if (this.editorPanel === panel) this.editorPanel = undefined;
+    });
   }
 
   private attachWebview(webview: vscode.Webview): void {

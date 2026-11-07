@@ -2,7 +2,7 @@
   "name": "kimi-code",
   "displayName": "Kimi Code — AI-ассистент",
   "description": "Чат с Kimi (Moonshot AI) прямо в VS Code: чат-панель, действия с выделенным кодом, агентский режим с правками файлов и запуском команд.",
-  "version": "0.8.5",
+  "version": "0.9.0",
   "publisher": "kimi",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -276,6 +276,11 @@
           "type": "boolean",
           "default": true,
           "description": "Показывать метки времени у сообщений в чате"
+        },
+        "kimi.openInEditor": {
+          "type": "boolean",
+          "default": true,
+          "description": "Открывать чат Kimi вкладкой в центре редактора (как Claude Code), а не только в боковой панели"
         }
       }
     }
