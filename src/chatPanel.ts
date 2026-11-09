@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { ApiConfig, ChatMessage, contextWindowForModel, FALLBACK_MODELS, listModels, streamChat, TokenUsage } from './api';
-import { runAgentLoop, isContextOverflowError } from './agent';
-import { getAuthState } from './auth';
+import { runAgentLoop, isAuthError, isContextOverflowError } from './agent';
+import { forceRefreshOAuth, getAuthState } from './auth';
 import { CheckpointEntry, CheckpointStore } from './checkpoints';
 import { autoDeployIfEnabled, autoPushIfEnabled, consumeChangesMade, setSnapshotHook } from './tools';
 import {
@@ -860,6 +860,17 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       }
       const cfg: ApiConfig = { ...getApiConfig(), apiKey: auth.token, baseUrl: auth.baseUrl };
 
+      // Восстановление после 401 посреди работы: принудительный refresh
+      // OAuth-токена и подмена ключа в конфиге. false → сессия входа мертва.
+      const refreshAuth = async (): Promise<boolean> => {
+        if (auth.kind !== 'oauth') return false;
+        const fresh = await forceRefreshOAuth(this.context);
+        if (!fresh) return false;
+        cfg.apiKey = fresh.token;
+        cfg.baseUrl = fresh.baseUrl;
+        this.log.appendLine('[auth] access token обновлён по refresh_token после 401');
+        return true;
+      };
       // автоархивация сессии: прошлый запрос уже упирался в лимит контекста —
       // сжимаем историю заранее, чтобы этот запрос прошёл, и продолжаем работу
       const compactAt = getAutoCompactTokens();
@@ -960,6 +971,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             this.log.appendLine(`[info] ${text}`);
             this.post({ type: 'info', text });
           },
+          onAuthRefresh: refreshAuth,
           signal: this.abort.signal,
         });
 
@@ -988,25 +1000,40 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         // панель принятия правок: файлы, изменённые агентом за сессию
         if (changed) this.postReviewUpdate();
       } else {
-        try {
-          const res = await streamChat(cfg, messages, { onToken, signal: this.abort.signal });
-          if (res.usage) onUsage(res.usage);
-        } catch (e) {
-          // переполнение контекста в обычном чате: архивируем сессию и пробуем ещё раз
-          const canCompact =
-            compactAt > 0 &&
-            isContextOverflowError(e) &&
-            !this.abort.signal.aborted &&
-            this.active().history.length > 2;
-          if (!canCompact) throw e;
-          await this.compactHistory(true);
-          const retry: ChatMessage[] = [
-            { role: 'system', content: systemPrompt(root, plan) },
-            ...this.active().history.slice(-20),
-            userMsg,
-          ];
-          const res2 = await streamChat(cfg, retry, { onToken, signal: this.abort.signal });
-          if (res2.usage) onUsage(res2.usage);
+        let authRetried = false;
+        let compactRetried = false;
+        let msgs = messages;
+        for (;;) {
+          try {
+            const res = await streamChat(cfg, msgs, { onToken, signal: this.abort.signal });
+            if (res.usage) onUsage(res.usage);
+            break;
+          } catch (e) {
+            // 401: токен доступа протух — обновляем авторизацию и повторяем запрос
+            if (!authRetried && isAuthError(e) && !this.abort.signal.aborted) {
+              authRetried = true;
+              this.post({ type: 'info', text: '🔄 Токен доступа истёк — обновляю авторизацию…' });
+              if (await refreshAuth()) continue;
+              throw new Error(
+                'Сессия входа Kimi истекла. Войдите заново: кнопка «🔒 Войти» в панели или команда «Kimi: Войти через сайт».'
+              );
+            }
+            // переполнение контекста в обычном чате: архивируем сессию и пробуем ещё раз
+            const canCompact =
+              compactAt > 0 &&
+              !compactRetried &&
+              isContextOverflowError(e) &&
+              !this.abort.signal.aborted &&
+              this.active().history.length > 2;
+            if (!canCompact) throw e;
+            compactRetried = true;
+            await this.compactHistory(true);
+            msgs = [
+              { role: 'system', content: systemPrompt(root, plan) },
+              ...this.active().history.slice(-20),
+              userMsg,
+            ];
+          }
         }
       }
 

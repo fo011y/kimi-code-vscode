@@ -224,7 +224,8 @@ export async function getAuthState(context: vscode.ExtensionContext): Promise<Au
 
 /**
  * Действующий access token: обновляет по refresh_token, если истекает
- * (запас 60 секунд). Возвращает undefined, если логина нет или refresh
+ * (запас 5 минут — чтобы токен не протух посреди длинного агентского прогона).
+ * Возвращает undefined, если логина нет или refresh
  * отклонён (тогда сохранённые токены очищаются).
  */
 export async function getOAuthAccessToken(
@@ -234,7 +235,7 @@ export async function getOAuthAccessToken(
   if (!t) return undefined;
   const baseUrl = OAUTH_REGIONS[t.region].apiBase;
   const now = Math.floor(Date.now() / 1000);
-  if (t.expiresAt - 60 > now) return { token: t.accessToken, baseUrl };
+  if (t.expiresAt - 300 > now) return { token: t.accessToken, baseUrl };
 
   const { status, data } = await postForm(`${OAUTH_REGIONS[t.region].oauthHost}/api/oauth/token`, {
     client_id: CLIENT_ID,
@@ -253,6 +254,35 @@ export async function getOAuthAccessToken(
   }
   // временный сбой сети/сервера — пробуем жить на старом токене, если он ещё не истёк
   if (t.expiresAt > now) return { token: t.accessToken, baseUrl };
+  return undefined;
+}
+
+/**
+ * Принудительное обновление access token по refresh_token, игнорируя срок годности.
+ * Используется, когда API отвечает 401 посреди работы (токен протух раньше expiresAt).
+ * Токены очищаются только при явном отказе сервера (401/403/invalid_grant) —
+ * при сетевом сбое сохранённый логин не трогаем. Успех → новые токены сохранены.
+ */
+export async function forceRefreshOAuth(
+  context: vscode.ExtensionContext
+): Promise<{ token: string; baseUrl: string } | undefined> {
+  const t = await readTokens(context);
+  if (!t) return undefined;
+  const baseUrl = OAUTH_REGIONS[t.region].apiBase;
+  const { status, data } = await postForm(`${OAUTH_REGIONS[t.region].oauthHost}/api/oauth/token`, {
+    client_id: CLIENT_ID,
+    grant_type: 'refresh_token',
+    refresh_token: t.refreshToken,
+  }).catch(() => ({ status: 0, data: {} as Record<string, unknown> }));
+
+  if (status === 200 && typeof data['access_token'] === 'string') {
+    const nt = parseToken(data);
+    await storeTokens(context, t.region, nt);
+    return { token: nt.accessToken, baseUrl };
+  }
+  if (status === 401 || status === 403 || data['error'] === 'invalid_grant') {
+    await logoutOAuth(context);
+  }
   return undefined;
 }
 

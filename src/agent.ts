@@ -8,7 +8,18 @@ export interface AgentHooks {
   onUsage?(usage: TokenUsage): void;
   /** Служебные сообщения в чат (автоархивация контекста и т.п.). */
   onInfo?(text: string): void;
+  /**
+   * Ответ API 401 посреди работы: попытаться обновить авторизацию
+   * (refresh OAuth-токена) и подменить cfg.apiKey. true → шаг повторяется.
+   */
+  onAuthRefresh?(): Promise<boolean>;
   signal?: AbortSignal;
+}
+
+/** Похоже ли сообщение об ошибке на отказ авторизации (протухший токен). */
+export function isAuthError(e: unknown): boolean {
+  const t = String((e as Error)?.message ?? e ?? '');
+  return /\b401\b|invalid_authentication|unauthorized|invalid.*(api.?key|token)|token.*(expired|invalid)/i.test(t);
 }
 
 /** Похоже ли сообщение об ошибке на переполнение контекста модели. */
@@ -102,6 +113,7 @@ export async function runAgentLoop(
   const maxContinues = getAutoContinues(); // 0 = без автопродолжения
 
   let continues = 0;
+  let authRetries = 0;
   for (;;) {
     for (let step = 0; step < maxSteps; step++) {
       if (hooks.signal?.aborted) {
@@ -117,7 +129,25 @@ export async function runAgentLoop(
           onToken: hooks.onToken,
           signal: hooks.signal,
         });
+        authRetries = 0; // запрос прошёл — сбрасываем счётчик авторетраев
       } catch (e) {
+        // 401 посреди работы: access token протух — обновляем и повторяем шаг
+        if (
+          isAuthError(e) &&
+          hooks.onAuthRefresh &&
+          authRetries < 2 &&
+          !hooks.signal?.aborted
+        ) {
+          authRetries++;
+          hooks.onInfo?.('🔄 Токен доступа истёк — обновляю авторизацию…');
+          if (await hooks.onAuthRefresh()) {
+            step--;
+            continue;
+          }
+          throw new Error(
+            'Сессия входа Kimi истекла. Войдите заново: кнопка «🔒 Войти» в панели или команда «Kimi: Войти через сайт».'
+          );
+        }
         // переполнение контекста → архивируем и повторяем шаг
         if (
           compactAt > 0 &&
