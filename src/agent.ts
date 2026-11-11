@@ -1,6 +1,6 @@
 import { ApiConfig, ChatMessage, streamChat, TokenUsage } from './api';
 import { executeTool, toolDefinitions } from './tools';
-import { getAutoCompactTokens, getAutoContinues, getMaxAgentSteps, isPlanMode } from './config';
+import { getAutoCompactTokens, getAutoContinues, getIntentContinues, getMaxAgentSteps, isPlanMode } from './config';
 
 export interface AgentHooks {
   onToken(text: string): void;
@@ -20,6 +20,22 @@ export interface AgentHooks {
 export function isAuthError(e: unknown): boolean {
   const t = String((e as Error)?.message ?? e ?? '');
   return /\b401\b|invalid_authentication|unauthorized|invalid.*(api.?key|token)|token.*(expired|invalid)/i.test(t);
+}
+
+/**
+ * Модель завершила ход текстом с обещанием продолжить работу
+ * («проверю», «сейчас сделаю»…), но не вызвала ни одного инструмента.
+ * Условные предложения пользователю («если хотите — проверю») не считаются.
+ */
+export function hasContinuationIntent(text: string): boolean {
+  if (!text) return false;
+  const tail = text.trim().slice(-400);
+  if (/если (хотите|вам нужно|понадобится)|могу (также|ещё)|скажите, если|хотите, (чтобы|я)/i.test(tail)) {
+    return false;
+  }
+  return /(проверю|посмотрю|найду|сделаю|запущу|соберу|исправлю|добавлю|обновлю|продолжу|приступаю|давайте|сейчас|let me|i'll|i will|going to|next i)/i.test(
+    tail
+  );
 }
 
 /** Похоже ли сообщение об ошибке на переполнение контекста модели. */
@@ -114,6 +130,9 @@ export async function runAgentLoop(
 
   let continues = 0;
   let authRetries = 0;
+  let intentContinues = 0;
+  let lastFinalText = '';
+  const maxIntentContinues = getIntentContinues(); // 0 = не подталкивать
   for (;;) {
     for (let step = 0; step < maxSteps; step++) {
       if (hooks.signal?.aborted) {
@@ -167,7 +186,27 @@ export async function runAgentLoop(
       if (res.toolCalls.length > 0) assistantMsg.tool_calls = res.toolCalls;
       messages.push(assistantMsg);
 
-      if (res.toolCalls.length === 0) return; // финальный ответ — задача выполнена
+      if (res.toolCalls.length === 0) {
+        // Модель закончила ход текстом. Если она пообещала продолжить работу
+        // («проверю», «сейчас сделаю»…), но не вызвала инструменты — подталкиваем.
+        if (!plan && intentContinues < maxIntentContinues && hasContinuationIntent(res.content)) {
+          const finalText = res.content.trim();
+          if (finalText && finalText === lastFinalText) return; // зациклилась — стоп
+          lastFinalText = finalText;
+          intentContinues++;
+          hooks.onInfo?.(
+            `🔁 Агент собрался продолжить, но остановился — подталкиваю автоматически (${intentContinues}/${maxIntentContinues})…`
+          );
+          messages.push({
+            role: 'user',
+            content:
+              'Ты остановился на полуслове, хотя собирался продолжить. Немедленно продолжай выполнение задачи инструментами, ' +
+              'не переспрашивая. Завершай ход только когда задача полностью выполнена.',
+          });
+          continue;
+        }
+        return; // финальный ответ — задача выполнена
+      }
 
       for (const call of res.toolCalls) {
         const name = call.function.name;

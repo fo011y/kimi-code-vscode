@@ -27,6 +27,15 @@ export function getAutoContinues(): number {
   return vscode.workspace.getConfiguration('kimi').get<number>('maxAutoContinues', 50);
 }
 
+/**
+ * Автоподталкивание, когда агент завершил ход обещанием продолжить
+ * («проверю», «сейчас сделаю»), но не вызвал инструменты.
+ * Сколько таких подталкиваний допустимо подряд. 0 — выключено.
+ */
+export function getIntentContinues(): number {
+  return vscode.workspace.getConfiguration('kimi').get<number>('intentAutoContinues', 10);
+}
+
 export function getModel(): string {
   return vscode.workspace.getConfiguration('kimi').get<string>('model', 'kimi-k2-0905-preview');
 }
