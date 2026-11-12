@@ -32,17 +32,21 @@ $headers = @{
 }
 $repo = 'fo011y/kimi-code-vscode'
 $notes = @"
-## Исправления
+## Новое
 
-- Вкладка «Kimi Чат» в редакторе теперь действительно восстанавливается сама после перезапуска окна: добавлено событие активации onWebviewPanel.
+- **Английский интерфейс** — расширение теперь двуязычное: язык выбирается автоматически по языку интерфейса VS Code (русский → русский, любой другой → английский). Переведены чат-панель, меню, диалоги, статус-бар и системные подсказки агента.
+
+## English
+
+- **English UI** — the extension is now bilingual: the language follows the VS Code display language (Russian → Russian, anything else → English). Chat panel, menus, dialogs, status bar and agent prompts are translated.
 "@
 $body = @{
-  tag_name = 'v0.9.6'
-  name = 'v0.9.6 — агент не останавливается на полуслове'
+  tag_name = 'v0.9.7'
+  name = 'v0.9.7 — английский интерфейс'
   body = $notes
 } | ConvertTo-Json
 $rel = Invoke-RestMethod -Method Post -Uri "https://api.github.com/repos/$repo/releases" -Headers $headers -Body ([System.Text.Encoding]::UTF8.GetBytes($body)) -ContentType 'application/json; charset=utf-8'
 Write-Output ("release id: " + $rel.id)
-$vsix = 'D:\Jobe\Soft\kimi-code\kimi-code-0.9.6.vsix'
-$up = Invoke-RestMethod -Method Post -Uri ("https://uploads.github.com/repos/$repo/releases/" + $rel.id + "/assets?name=kimi-code-0.9.6.vsix") -Headers $headers -InFile $vsix -ContentType 'application/octet-stream'
+$vsix = 'D:\Jobe\Soft\kimi-code\kimi-code-0.9.7.vsix'
+$up = Invoke-RestMethod -Method Post -Uri ("https://uploads.github.com/repos/$repo/releases/" + $rel.id + "/assets?name=kimi-code-0.9.7.vsix") -Headers $headers -InFile $vsix -ContentType 'application/octet-stream'
 Write-Output ("asset: " + $up.browser_download_url)
