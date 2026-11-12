@@ -103,6 +103,18 @@ export function activate(context: vscode.ExtensionContext): void {
     })
   );
 
+  // Авторезюме: окно было перезапущено посреди прогона — задача не завершена.
+  // Флаг снимаем сразу, чтобы не зациклиться; запускаем с паузой, давая окну собраться.
+  const pendingRun = context.workspaceState.get<{ sessionId: string; at: number }>('kimi.pendingRun');
+  if (pendingRun && Date.now() - pendingRun.at < 24 * 3600 * 1000) {
+    void context.workspaceState.update('kimi.pendingRun', undefined);
+    setTimeout(() => {
+      void provider.resumePendingRun(pendingRun.sessionId);
+    }, 5000);
+  } else if (pendingRun) {
+    void context.workspaceState.update('kimi.pendingRun', undefined);
+  }
+
   // кнопка Kimi в статус-баре (справа внизу) со статусом аккаунта
   const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   statusBar.command = 'kimi.accountMenu';

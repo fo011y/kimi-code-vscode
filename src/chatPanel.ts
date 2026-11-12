@@ -25,6 +25,8 @@ import {
 
 const SESSIONS_KEY = 'kimi.sessions';
 const ACTIVE_KEY = 'kimi.activeSession';
+/** Флаг незавершённого прогона: ставится на старте, снимается в finally. Остаётся, если хост умер посреди работы. */
+const PENDING_RUN_KEY = 'kimi.pendingRun';
 
 const HELP_TEXT = [
   '/clear — новый диалог (сброс контекста)',
@@ -87,6 +89,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   private lastActivity = 0;
   private toolsRunning = 0;
   private autoNudges = 0;
+  /** Уже выведенный текст текущего ответа — для восстановления панели посреди прогона. */
+  private liveAcc = '';
 
   constructor(
     private readonly context: vscode.ExtensionContext,
@@ -196,6 +200,29 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     this.createSession();
   }
 
+  /**
+   * Авторезюме после перезапуска окна посреди прогона: окно умерло — цикл
+   * оборвался, но задача не завершена. Переключаемся на ту сессию и просим
+   * агента продолжить. Флаг уже снят вызывающим — повторно не сработает.
+   */
+  async resumePendingRun(sessionId: string): Promise<void> {
+    if (this.busy) return;
+    const s = this.sessions.find((x) => x.id === sessionId);
+    if (!s || s.history.length === 0) return;
+    if (s.id !== this.activeId) {
+      this.activeId = s.id;
+      this.postSessions();
+    }
+    this.post({
+      type: 'info',
+      text: '⏸ Задача была прервана перезапуском окна — продолжаю автоматически. Остановить: кнопка «Стоп».',
+    });
+    await this.handleAsk(
+      'Окно VS Code было перезапущено, и твоя работа оборвалась. Продолжай выполнение задачи с того места, где остановился, не переспрашивая.',
+      true
+    );
+  }
+
   // ---------- веб-панели ----------
 
   resolveWebviewView(view: vscode.WebviewView): void {
@@ -303,6 +330,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       });
     }
     send({ type: 'queue', items: this.queue.map((q) => q.text) });
+    // Панель переоткрылась посреди прогона: возвращаем живое состояние —
+    // «пузырь» ответа и уже накопленный текст, иначе чат выглядит пустым,
+    // хотя агент продолжает работать.
+    if (this.busy) {
+      send({ type: 'start' });
+      if (this.liveAcc) send({ type: 'delta', text: this.liveAcc });
+    }
     void this.refreshModels();
     void this.postAuthState();
   }
@@ -947,10 +981,25 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         userMsg,
       ];
 
+      // Сообщение пользователя сохраняем сразу: при перезапуске окна/хоста
+      // расширений посреди прогона оно не потеряется. Плюс флаг незавершённого
+      // прогона — после перезапуска задача продолжится автоматически.
+      this.active().history.push({
+        role: 'user',
+        content: userContent + (images.length ? `\n[📎 прикреплено изображений: ${images.length}]` : ''),
+      });
+      this.saveSessions();
+      void this.context.workspaceState.update(PENDING_RUN_KEY, {
+        sessionId: this.activeId,
+        at: Date.now(),
+      });
+
       let acc = '';
+      this.liveAcc = '';
       let requestTokens = 0;
       const onToken = (t: string) => {
         acc += t;
+        this.liveAcc = acc;
         this.lastActivity = Date.now();
         this.autoNudges = 0; // API отвечает — сбрасываем счётчик авто-пинков
         this.post({ type: 'delta', text: t });
@@ -1091,16 +1140,18 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         this.postSessions();
       }
 
-      this.active().history.push(
-        {
-          role: 'user',
-          content: userContent + (images.length ? `\n[📎 прикреплено изображений: ${images.length}]` : ''),
-        },
-        { role: 'assistant', content: acc }
-      );
+      this.active().history.push({ role: 'assistant', content: acc });
       this.saveSessions();
       this.post({ type: 'done' });
     } catch (e: any) {
+      // частичный ответ тоже сохраняем — при обрыве он не пропадёт из истории
+      if (this.liveAcc.trim()) {
+        this.active().history.push({
+          role: 'assistant',
+          content: this.liveAcc + (e?.name === 'AbortError' ? '\n\n⏸ (прервано)' : ''),
+        });
+        this.saveSessions();
+      }
       if (e?.name === 'AbortError') {
         this.post({ type: 'done', aborted: true });
       } else {
@@ -1109,8 +1160,12 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       }
     } finally {
       this.busy = false;
+      this.liveAcc = '';
       clearInterval(this.watchdog);
       this.watchdog = undefined;
+      // прогон завершился штатно (ответ, ошибка или отмена) — флаг снимаем;
+      // он остаётся только если хост умер посреди работы (перезапуск окна)
+      void this.context.workspaceState.update(PENDING_RUN_KEY, undefined);
       this.pumpQueue(); // отправить «молнию» или следующее сообщение из очереди
     }
   }
@@ -2269,7 +2324,7 @@ var vscode = window.__kapi;
         for (var i = 0; i < (m.items || []).length; i++) {
           var it = m.items[i];
           var hel = null;
-          if (it.role === 'user') hel = addMsg('user', it.content.split('\\n')[0].slice(0, 300));
+          if (it.role === 'user') hel = addMsg('user', it.content.slice(0, 4000));
           else if (it.role === 'assistant') hel = addMsg('assistant', it.content);
           if (hel && hel.parentElement) hel.parentElement.setAttribute('data-idx', i);
         }
