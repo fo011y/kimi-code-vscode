@@ -23,17 +23,12 @@ code --install-extension kimi-code.vsix
 
 Or in VS Code: `Ctrl+Shift+P` → **Extensions: Install from VSIX…** → pick the downloaded file.
 
-## 🆕 What's new in 0.8.0
+## 🆕 What’s new in 0.9.7
 
-- **Sign in via the Kimi website (OAuth)** — no API key, same flow as the official Kimi Code CLI; tokens refresh automatically.
-- **Message queue & lightning ⚡** — drop more ideas while the agent is thinking; ⚡ aborts the task and sends instantly.
-- **"👢 Nudge" button & auto-nudge** — agent stuck? Kick it manually, or let the watchdog do it: 90 s of API silence restarts the request (up to 3 attempts, `kimi.autoNudgeSeconds`).
-- **Auto-archiving at the token limit** — when the context overflows, the session is compressed into a summary and work continues without losing the task.
-- **Usage limits** — context-window fill right in the chat (`context: 19.6k/128k (15%)`); `Kimi: Show Usage Limits` command (account menu and chat menu): model, session spend, platform balance for API keys, link to the Kimi Code console.
-- **Paste screenshots (Ctrl+V)** — paste images straight into the chat (vision models), thumbnails with remove buttons, works with the queue and lightning.
-- **Multi-sessions with search** — conversation tabs, history restore after restart (up to 100 messages), 🔍 search across all sessions with jump-to-message.
-- **Checkpoints / revert** — file snapshots before edits, "Changes by Kimi" panel with diffs and revert.
-- **Full autonomy** — `fullAuto` mode: edits, commands, GitHub auto-push and auto-deploy — without a single prompt.
+- **English UI** — the extension is now bilingual: the language follows the VS Code display language (Russian VS Code → Russian, anything else → English). The chat panel, account menu, sign-in dialogs, status bar, subscription limits card and agent prompts are all translated.
+- **Permanent download link** — `releases/latest/download/kimi-code.vsix` always points to the latest build and never goes stale.
+
+Full version history — see [Releases](https://github.com/fo011y/kimi-code-vscode/releases).
 
 ## 📸 Screenshots
 

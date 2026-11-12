@@ -32,13 +32,17 @@ $headers = @{
 }
 $repo = 'fo011y/kimi-code-vscode'
 $notes = @"
-## Новое
+- **Английский интерфейс** — расширение стало двуязычным: язык выбирается автоматически по языку интерфейса VS Code (русский VS Code → русский, любой другой → английский). Переведены чат-панель, меню аккаунта, диалоги входа, статус-бар, карточка лимитов подписки и системные подсказки агента.
+- **Постоянная ссылка скачивания** — `releases/latest/download/kimi-code.vsix` всегда ведёт на свежую версию, больше не устаревает.
 
-- **Английский интерфейс** — расширение теперь двуязычное: язык выбирается автоматически по языку интерфейса VS Code (русский → русский, любой другой → английский). Переведены чат-панель, меню, диалоги, статус-бар и системные подсказки агента.
+История всех версий — на странице [релизов](https://github.com/fo011y/kimi-code-vscode/releases).
 
 ## English
 
-- **English UI** — the extension is now bilingual: the language follows the VS Code display language (Russian → Russian, anything else → English). Chat panel, menus, dialogs, status bar and agent prompts are translated.
+- **English UI** — the extension is now bilingual: the language follows the VS Code display language (Russian VS Code → Russian, anything else → English). The chat panel, account menu, sign-in dialogs, status bar, subscription limits card and agent prompts are all translated.
+- **Permanent download link** — `releases/latest/download/kimi-code.vsix` always points to the latest build and never goes stale.
+
+Full version history — see [Releases](https://github.com/fo011y/kimi-code-vscode/releases).
 "@
 $body = @{
   tag_name = 'v0.9.7'
