@@ -352,6 +352,16 @@ export function activate(context: vscode.ExtensionContext): void {
   });
 
   cmd('kimi.showLogs', () => logChannel.show());
+
+  // Восстановление вкладки «Kimi Чат» в редакторе после перезапуска окна.
+  context.subscriptions.push(
+    vscode.window.registerWebviewPanelSerializer('kimi.chatPanel', {
+      // eslint-disable-next-line @typescript-eslint/require-await
+      async deserializeWebviewPanel(panel: vscode.WebviewPanel) {
+        provider.attachEditorPanel(panel);
+      },
+    })
+  );
 }
 
 export function deactivate(): void {

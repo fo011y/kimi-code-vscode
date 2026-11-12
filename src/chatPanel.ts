@@ -219,6 +219,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       vscode.ViewColumn.Active,
       { enableScripts: true, retainContextWhenHidden: true }
     );
+    this.attachEditorPanel(panel);
+  }
+
+  /**
+   * Подключить редакторскую вкладку (созданную вручную или восстановленную
+   * сериализатором VS Code после перезапуска окна).
+   */
+  attachEditorPanel(panel: vscode.WebviewPanel): void {
     panel.iconPath = vscode.Uri.joinPath(this.context.extensionUri, 'media', 'icon.png');
     this.editorPanel = panel;
     this.attachWebview(panel.webview);
