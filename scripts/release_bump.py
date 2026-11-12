@@ -49,6 +49,13 @@ def update_readme(path, header, body):
 update_readme('README.md', '## 🆕 Новое в %s' % ver, ru)
 update_readme('README.en.md', '## 🆕 What\u2019s new in %s' % ver, en)
 
+# --- 2.1 ссылка скачивания с номером версии ---
+for path in ('README.md', 'README.en.md'):
+    t = io.open(path, encoding='utf-8').read()
+    t2 = re.sub(r'kimi-code-[0-9.]+\.vsix', 'kimi-code-%s.vsix' % ver, t)
+    if t2 != t:
+        io.open(path, 'w', encoding='utf-8', newline='').write(t2)
+
 # --- 3. строки в таблицы истории версий ---
 summary_en = section('SUMMARY_EN', None)
 # заголовок вида "v0.9.7 — английский интерфейс" → "Английский интерфейс"
