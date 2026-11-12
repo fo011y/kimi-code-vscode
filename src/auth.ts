@@ -12,6 +12,7 @@
  */
 
 import * as vscode from 'vscode';
+import { S, fmt } from './i18n';
 
 export type OAuthRegion = 'mainland-cn' | 'global';
 
@@ -27,13 +28,13 @@ export const OAUTH_REGIONS: Record<OAuthRegion, RegionProfile> = {
     oauthHost: 'https://auth.kimi.com',
     apiBase: 'https://api.kimi.com/coding/v1',
     label: 'Kimi.com',
-    detail: 'международный сайт kimi.com / аккаунт .com',
+    detail: S.regionComDetail,
   },
   global: {
     oauthHost: 'https://auth.kimi.ai',
     apiBase: 'https://api.kimi.ai/coding/v1',
     label: 'Kimi.ai (Global)',
-    detail: 'глобальный сайт kimi.ai',
+    detail: S.regionAiDetail,
   },
 };
 
@@ -95,7 +96,7 @@ async function requestDeviceAuthorization(oauthHost: string): Promise<DeviceAuth
     { client_id: CLIENT_ID }
   );
   if (status !== 200) {
-    throw new Error(`Авторизация устройства не удалась (HTTP ${status}): ${errorText(data, 'unknown')}`);
+    throw new Error(fmt(S.deviceAuthFailed, status, errorText(data, 'unknown')));
   }
   const userCode = data['user_code'];
   const deviceCode = data['device_code'];
@@ -105,7 +106,7 @@ async function requestDeviceAuthorization(oauthHost: string): Promise<DeviceAuth
     typeof deviceCode !== 'string' || !deviceCode ||
     typeof complete !== 'string' || !complete
   ) {
-    throw new Error('Некорректный ответ сервера авторизации Kimi.');
+    throw new Error(S.badServerResponse);
   }
   return {
     userCode,
@@ -144,7 +145,7 @@ async function pollForToken(
   let interval = Math.max(1, intervalSec);
   const deadline = Date.now() + Math.max(60, expiresInSec) * 1000;
   while (Date.now() < deadline) {
-    if (token.isCancellationRequested) throw new Error('Вход отменён пользователем.');
+    if (token.isCancellationRequested) throw new Error(S.loginCancelled);
     await sleep(interval * 1000);
     const { status, data } = await postForm(`${oauthHost}/api/oauth/token`, {
       client_id: CLIENT_ID,
@@ -157,20 +158,20 @@ async function pollForToken(
     const code = typeof data['error'] === 'string' ? data['error'] : '';
     switch (code) {
       case 'authorization_pending':
-        progress.report({ message: 'Ожидание подтверждения в браузере…' });
+        progress.report({ message: S.waitingBrowser });
         break;
       case 'slow_down':
         interval += 5;
         break;
       case 'expired_token':
-        throw new Error('Код входа истёк. Попробуйте войти снова.');
+        throw new Error(S.codeExpired);
       case 'access_denied':
-        throw new Error('Вход отклонён на странице Kimi.');
+        throw new Error(S.accessDenied);
       default:
-        throw new Error(`Ошибка входа (HTTP ${status}): ${errorText(data, code || 'unknown')}`);
+        throw new Error(fmt(S.loginError, status, errorText(data, code || 'unknown')));
     }
   }
-  throw new Error('Время ожидания входа истекло. Попробуйте снова.');
+  throw new Error(S.loginTimeout);
 }
 
 async function storeTokens(context: vscode.ExtensionContext, region: OAuthRegion, t: TokenInfo): Promise<void> {
@@ -306,7 +307,7 @@ export async function loginInteractive(context: vscode.ExtensionContext): Promis
       description: OAUTH_REGIONS[r].detail,
       region: r,
     })),
-    { title: 'Kimi: выберите регион вашего аккаунта' }
+    { title: S.regionPickTitle }
   );
   if (!pick) return false;
   const region = pick.region;
@@ -324,13 +325,13 @@ export async function loginInteractive(context: vscode.ExtensionContext): Promis
   void vscode.env.openExternal(vscode.Uri.parse(device.verificationUriComplete));
   void vscode.window
     .showInformationMessage(
-      `Kimi: откроется страница входа. Ваш код: ${device.userCode}`,
-      'Скопировать код',
-      'Открыть страницу ещё раз'
+      fmt(S.loginPageMsg, device.userCode),
+      S.copyCode,
+      S.openPageAgain
     )
     .then((btn) => {
-      if (btn === 'Скопировать код') void vscode.env.clipboard.writeText(device.userCode);
-      if (btn === 'Открыть страницу ещё раз') {
+      if (btn === S.copyCode) void vscode.env.clipboard.writeText(device.userCode);
+      if (btn === S.openPageAgain) {
         void vscode.env.openExternal(vscode.Uri.parse(device.verificationUriComplete));
       }
     });
@@ -339,14 +340,14 @@ export async function loginInteractive(context: vscode.ExtensionContext): Promis
     const tokens = await vscode.window.withProgress(
       {
         location: vscode.ProgressLocation.Notification,
-        title: `Kimi: вход через браузер (код ${device.userCode})`,
+        title: fmt(S.loginProgress, device.userCode),
         cancellable: true,
       },
       (progress, ct) =>
         pollForToken(profile.oauthHost, device.deviceCode, device.interval, device.expiresIn, ct, progress)
     );
     await storeTokens(context, region, tokens);
-    vscode.window.showInformationMessage(`Kimi: вход выполнен (${profile.label}). API-ключ больше не нужен.`);
+    vscode.window.showInformationMessage(fmt(S.loginOk, profile.label));
     return true;
   } catch (e) {
     vscode.window.showErrorMessage(`Kimi: ${e instanceof Error ? e.message : String(e)}`);

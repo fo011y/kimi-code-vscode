@@ -22,6 +22,7 @@ import {
   setPermissionMode,
   PermissionMode,
 } from './config';
+import { S, fmt, LOCALE } from './i18n';
 
 const SESSIONS_KEY = 'kimi.sessions';
 const ACTIVE_KEY = 'kimi.activeSession';
@@ -29,13 +30,13 @@ const ACTIVE_KEY = 'kimi.activeSession';
 const PENDING_RUN_KEY = 'kimi.pendingRun';
 
 const HELP_TEXT = [
-  '/clear — новый диалог (сброс контекста)',
-  '/compact — сжать историю диалога в сводку',
-  '/review — изменения за сессию: diff и откат (checkpoints)',
-  '/plan, /ask, /auto, /fullauto — переключить режим автономности',
-  '@путь/к/файлу — прикрепить файл к вопросу',
-  'Пока агент занят: Enter — сообщение в очередь, ⚡ — прервать и отправить сразу',
-  'При лимите контекста сессия архивируется автоматически, работа продолжается',
+  S.helpClear,
+  S.helpCompact,
+  S.helpReview,
+  S.helpModes,
+  S.helpAttach,
+  S.helpQueue,
+  S.helpArchive,
 ].join('\n');
 
 interface Session {
@@ -47,24 +48,21 @@ interface Session {
 
 function systemPrompt(workspaceRoot: string | undefined, plan: boolean): string {
   const lines = [
-    'Ты — Kimi, AI-ассистент программиста, встроенный в VS Code.',
-    workspaceRoot ? `Рабочая папка проекта: ${workspaceRoot}` : 'Папка проекта не открыта.',
-    'Всегда отвечай на языке пользователя.',
-    'Код оформляй в markdown-блоках с указанием языка.',
-    'В агентском режиме: сначала изучи нужные файлы инструментами read_file / list_files / search_in_files,',
-    'затем вносите изменения через write_file. Не выполняй разрушительных команд.',
-    'После правок проверяй проект инструментом get_diagnostics и исправляй появившиеся ошибки.',
-    'Когда задача полностью выполнена и пользователь просил сохранить результат на GitHub — вызывай git_push с кратким сообщением коммита.',
-    'Если пользователь просил задеплоить/опубликовать проект — после завершения правок вызывай deploy.',
-    'Никогда не завершай ход обещанием что-то сделать («проверю», «сейчас сделаю», «давайте проверим») — ' +
-      'если собираешься действовать, сразу вызывай инструмент. Завершай ход только когда задача полностью выполнена, кратким итогом сделанного.',
-    'Будь краток в пояснениях, но полон в коде.',
+    S.sysRole,
+    workspaceRoot ? fmt(S.sysWorkspace, workspaceRoot) : S.sysNoWorkspace,
+    S.sysLang,
+    S.sysCode,
+    S.sysAgent1,
+    S.sysAgent2,
+    S.sysDiag,
+    S.sysGit,
+    S.sysDeploy,
+    S.sysNoPromises,
+    S.sysBrief,
   ];
   if (plan) {
     lines.push(
-      'РЕЖИМ ПЛАНИРОВАНИЯ: тебе доступны ТОЛЬКО инструменты чтения. Ничего не изменяй и не запускай. ' +
-        'Изучи проект и составь подробный пошаговый план: какие файлы менять, что именно делать, в каком порядке. ' +
-        'План выведи в конце ответа нумерованным списком.'
+      S.sysPlan
     );
   }
   return lines.join('\n');
@@ -98,7 +96,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   ) {
     this.sessions = context.workspaceState.get<Session[]>(SESSIONS_KEY, []);
     if (this.sessions.length === 0) {
-      this.sessions.push({ id: String(Date.now()), title: 'Новый диалог', history: [], updatedAt: Date.now() });
+      this.sessions.push({ id: String(Date.now()), title: S.newChatTitle, history: [], updatedAt: Date.now() });
     }
     const savedActive = context.workspaceState.get<string>(ACTIVE_KEY, '');
     this.activeId = this.sessions.some((s) => s.id === savedActive) ? savedActive : this.sessions[0].id;
@@ -153,7 +151,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   }
 
   private createSession(): void {
-    const s: Session = { id: String(Date.now()), title: 'Новый диалог', history: [], updatedAt: Date.now() };
+    const s: Session = { id: String(Date.now()), title: S.newChatTitle, history: [], updatedAt: Date.now() };
     this.sessions.push(s);
     this.activeId = s.id;
     this.saveSessions();
@@ -215,10 +213,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
     this.post({
       type: 'info',
-      text: '⏸ Задача была прервана перезапуском окна — продолжаю автоматически. Остановить: кнопка «Стоп».',
+      text: S.resumedInfo,
     });
     await this.handleAsk(
-      'Окно VS Code было перезапущено, и твоя работа оборвалась. Продолжай выполнение задачи с того места, где остановился, не переспрашивая.',
+      S.resumePrompt,
       true
     );
   }
@@ -242,7 +240,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
     const panel = vscode.window.createWebviewPanel(
       'kimi.chatPanel',
-      'Kimi Чат',
+      S.chatTabTitle,
       vscode.ViewColumn.Active,
       { enableScripts: true, retainContextWhenHidden: true }
     );
@@ -300,7 +298,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       }
       if (m?.type === 'webviewError') {
         this.log.appendLine('[panel] ОШИБКА веб-панели: ' + String(m.text ?? ''));
-        void vscode.window.showErrorMessage('Kimi: ошибка панели чата — ' + String(m.text ?? '').split('\n')[0]);
+        void vscode.window.showErrorMessage(S.panelError + String(m.text ?? '').split('\n')[0]);
         return;
       }
       void this.onMessage(m);
@@ -354,7 +352,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   private async postLimits(): Promise<void> {
     const auth = await getAuthQuiet(this.context);
     if (!auth) {
-      this.post({ type: 'limits', error: 'Вход не выполнен. Войдите через сайт Kimi или укажите API-ключ.' });
+      this.post({ type: 'limits', error: S.limitsNotLoggedIn });
       return;
     }
     const fetchUsage = async (token: string, baseUrl: string) => {
@@ -583,7 +581,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     this.post({ type: 'mode', mode });
     if (mode === 'fullAuto') {
       vscode.window.showWarningMessage(
-        'Kimi: включён режим полной автономности — правки файлов и команды выполняются без подтверждения.'
+        S.fullAutoWarn
       );
     }
   }
@@ -668,10 +666,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       return;
     }
     this.lightningNext = {
-      text: 'Продолжай с того места, где остановился. Если задача уже полностью завершена — кратко сообщи об этом.',
+      text: S.nudgeContinue,
       agent,
     };
-    this.post({ type: 'info', text: '👢 Агент пнут: прерываю зависший запрос и прошу продолжить…' });
+    this.post({ type: 'info', text: S.nudgeInfo });
     this.abort?.abort();
   }
 
@@ -679,7 +677,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   async insertSelectionToInput(): Promise<void> {
     const ed = vscode.window.activeTextEditor;
     if (!ed || ed.selection.isEmpty) {
-      vscode.window.showWarningMessage('Сначала выделите код в редакторе.');
+      vscode.window.showWarningMessage(S.selectCodeFirst);
       return;
     }
     const rel = vscode.workspace.asRelativePath(ed.document.uri);
@@ -693,7 +691,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   async insertActiveFileToInput(): Promise<void> {
     const ed = vscode.window.activeTextEditor;
     if (!ed) {
-      vscode.window.showWarningMessage('Откройте файл в редакторе.');
+      vscode.window.showWarningMessage(S.openFileFirst);
       return;
     }
     const rel = vscode.workspace.asRelativePath(ed.document.uri);
@@ -710,43 +708,43 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   async reviewChanges(): Promise<void> {
     const rootDir = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     if (!rootDir) {
-      vscode.window.showWarningMessage('Откройте папку проекта.');
+      vscode.window.showWarningMessage(S.openFolderFirst);
       return;
     }
     const cp = this.checkpointsFor();
     const entries = cp.list();
     if (entries.length === 0) {
-      vscode.window.showInformationMessage('За эту сессию Kimi ещё не менял файлы.');
+      vscode.window.showInformationMessage(S.noChanges);
       return;
     }
 
     const pick = await vscode.window.showQuickPick(
       [
         {
-          label: '$(discard) Откатить ВСЕ изменения сессии',
-          description: `${entries.length} файл(ов)`,
+          label: S.revertAllLabel,
+          description: fmt(S.filesCount, entries.length),
           entry: undefined as CheckpointEntry | undefined,
         },
         { label: '', kind: vscode.QuickPickItemKind.Separator, entry: undefined },
         ...entries.map((e) => ({
           label: `$(file) ${e.file}`,
-          description: e.existed ? 'изменён' : 'создан',
+          description: e.existed ? S.modifiedLbl : S.createdLbl,
           entry: e as CheckpointEntry | undefined,
         })),
       ],
-      { title: 'Kimi: изменения за сессию (checkpoints)' }
+      { title: S.reviewTitle }
     );
     if (!pick) return;
 
     if (!pick.entry) {
       const ok = await vscode.window.showWarningMessage(
-        `Откатить все изменения сессии (${entries.length} файл(ов))?`,
+        fmt(S.revertAllConfirm, entries.length),
         { modal: true },
-        'Откатить всё'
+        S.revertAllBtn
       );
-      if (ok === 'Откатить всё') {
+      if (ok === S.revertAllBtn) {
         const n = await cp.revertAll(rootDir);
-        vscode.window.showInformationMessage(`Kimi: откачено файлов: ${n}.`);
+        vscode.window.showInformationMessage(fmt(S.revertedN, n));
         this.postReviewUpdate();
       }
       return;
@@ -755,13 +753,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     const entry = pick.entry;
     await cp.showDiff(entry, rootDir);
     const action = await vscode.window.showInformationMessage(
-      `Откатить «${entry.file}» к состоянию до правок Kimi?`,
+      fmt(S.revertFileConfirm, entry.file),
       { modal: true },
-      'Откатить'
+      S.revertBtn
     );
-    if (action === 'Откатить') {
+    if (action === S.revertBtn) {
       await cp.revert(entry, rootDir);
-      vscode.window.showInformationMessage(`Kimi: файл откачен: ${entry.file}`);
+      vscode.window.showInformationMessage(fmt(S.fileReverted, entry.file));
       this.postReviewUpdate();
     }
   }
@@ -797,7 +795,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         if (files.length === 0) continue;
         const doc = await vscode.workspace.openTextDocument(files[0]);
         const rel = vscode.workspace.asRelativePath(files[0]);
-        full += `\n\nФайл \`${rel}\` (прикреплён через @):\n\`\`\`${doc.languageId}\n${doc.getText().slice(0, 6000)}\n\`\`\``;
+        full += fmt(S.attachFileTpl, rel, doc.languageId, doc.getText().slice(0, 6000));
         attached++;
       } catch {
         // файл не найден — пропускаем
@@ -812,7 +810,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       const sel = ed.document.getText(ed.selection);
       if (sel.trim()) {
         const rel = vscode.workspace.asRelativePath(ed.document.uri);
-        full += `\n\nВыделенный код из \`${rel}\`:\n\`\`\`${ed.document.languageId}\n${sel.slice(0, 8000)}\n\`\`\``;
+        full += fmt(S.selCodeTpl, rel, ed.document.languageId, sel.slice(0, 8000));
         selectionAttached = true;
       }
     }
@@ -820,7 +818,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     // открытый файл целиком (если включено и выделения нет)
     if (ed && getAttachOpenFile() && !selectionAttached) {
       const rel = vscode.workspace.asRelativePath(ed.document.uri);
-      full += `\n\nОткрытый файл \`${rel}\`:\n\`\`\`${ed.document.languageId}\n${ed.document.getText().slice(0, 8000)}\n\`\`\``;
+      full += fmt(S.openFileTpl, rel, ed.document.languageId, ed.document.getText().slice(0, 8000));
     }
 
     // диагностика активного файла (ошибки/предупреждения линтера)
@@ -835,7 +833,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           (d) =>
             `- строка ${d.range.start.line + 1}: [${d.severity === vscode.DiagnosticSeverity.Error ? 'ERROR' : 'WARN'}] ${d.message.split('\n')[0].slice(0, 200)}`
         );
-        full += `\n\nДиагностика IDE для \`${rel}\`:\n${lines.join('\n')}`;
+        full += fmt(S.diagTpl, rel, lines.join('\n'));
       }
     }
 
@@ -880,7 +878,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   private async compactHistory(auto = false): Promise<void> {
     const hist = this.active().history;
     if (hist.length === 0) {
-      if (!auto) this.post({ type: 'info', text: 'История пуста — сжимать нечего.' });
+      if (!auto) this.post({ type: 'info', text: S.historyEmpty });
       return;
     }
     const auth = await ensureAuth(this.context);
@@ -888,7 +886,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     const cfg: ApiConfig = { ...getApiConfig(), apiKey: auth.token, baseUrl: auth.baseUrl };
     this.post({
       type: 'info',
-      text: auto ? '🗜 Лимит токенов — архивирую сессию и продолжаю работу…' : '🗜 Сжимаю историю диалога…',
+      text: auto ? S.compactStart : S.compactingHistory,
     });
     try {
       const transcript = hist
@@ -899,18 +897,18 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         {
           role: 'system',
           content:
-            'Сожми диалог программиста с AI-ассистентом в краткую сводку (10–15 пунктов): цели, принятые решения, изменённые файлы, важный технический контекст. Пиши на языке диалога.',
+            S.compactChatSystem,
         },
         { role: 'user', content: transcript },
       ]);
       this.active().history = [
-        { role: 'user', content: `Сводка предыдущего диалога:\n${res.content}` },
-        { role: 'assistant', content: 'Принято. Продолжаем с учётом этой сводки.' },
+        { role: 'user', content: S.compactChatUserPrefix + res.content },
+        { role: 'assistant', content: S.compactChatAck },
       ];
       this.saveSessions();
       this.post({
         type: 'info',
-        text: `🗜 Сессия заархивирована в сводку (${res.usage?.total_tokens ?? '?'} токенов)${auto ? ' — работа продолжается.' : '.'}`,
+        text: fmt(S.compactChatDone, res.usage?.total_tokens ?? '?') + (auto ? S.compactChatCont : '.'),
       });
     } catch (e) {
       this.post({ type: 'error', text: e instanceof Error ? e.message : String(e) });
@@ -930,14 +928,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
     this.post({
       type: 'user',
-      text: userText + (images.length ? `${userText ? '\n' : ''}📎 изображений: ${images.length}` : ''),
+      text: userText + (images.length ? (userText ? '\n' : '') + fmt(S.imagesAttached, images.length) : ''),
     });
     this.post({ type: 'start' });
 
     try {
       const auth = await ensureAuth(this.context);
       if (!auth) {
-        this.post({ type: 'error', text: 'Вы не вошли в аккаунт. Выполните команду «Kimi: Войти через сайт» или «Kimi: Указать API-ключ».' });
+        this.post({ type: 'error', text: S.notLoggedIn });
         return;
       }
       const cfg: ApiConfig = { ...getApiConfig(), apiKey: auth.token, baseUrl: auth.baseUrl };
@@ -963,7 +961,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
       const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
       const plan = isPlanMode();
-      const userContent = await this.buildUserContent(trimmed || 'Что на этом изображении?');
+      const userContent = await this.buildUserContent(trimmed || S.whatIsImage);
       // vision: картинки идут только в этот запрос; в историю — текстовая пометка,
       // чтобы не раздувать сохранённые сессии мегабайтами data-URL
       const userMsg: ChatMessage = images.length
@@ -1038,7 +1036,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           if (this.autoNudges > 3) {
             this.post({
               type: 'info',
-              text: '⛔ API не отвечает после 3 авто-пинков — задача остановлена. Проверьте сеть/подписку и повторите.',
+              text: S.autoNudgeStop,
             });
             this.autoNudges = 0;
             this.abort?.abort();
@@ -1046,7 +1044,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           }
           this.post({
             type: 'info',
-            text: `👢 Авто-пинок: ${nudgeSec} с без ответа от API — перезапускаю запрос (попытка ${this.autoNudges}/3)…`,
+            text: fmt(S.autoNudgeInfo, nudgeSec, this.autoNudges),
           });
           this.nudge(agent);
         }, 5_000);
@@ -1109,10 +1107,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             // 401: токен доступа протух — обновляем авторизацию и повторяем запрос
             if (!authRetried && isAuthError(e) && !this.abort.signal.aborted) {
               authRetried = true;
-              this.post({ type: 'info', text: '🔄 Токен доступа истёк — обновляю авторизацию…' });
+              this.post({ type: 'info', text: S.tokenRefresh });
               if (await refreshAuth()) continue;
               throw new Error(
-                'Сессия входа Kimi истекла. Войдите заново: кнопка «🔒 Войти» в панели или команда «Kimi: Войти через сайт».'
+                S.sessionExpired
               );
             }
             // переполнение контекста в обычном чате: архивируем сессию и пробуем ещё раз
@@ -1135,7 +1133,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       }
 
       // авто-название сессии по первому сообщению
-      if (this.active().title === 'Новый диалог') {
+      if (this.active().title === S.newChatTitle) {
         this.active().title = userText.replace(/\s+/g, ' ').slice(0, 30);
         this.postSessions();
       }
@@ -1148,7 +1146,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       if (this.liveAcc.trim()) {
         this.active().history.push({
           role: 'assistant',
-          content: this.liveAcc + (e?.name === 'AbortError' ? '\n\n⏸ (прервано)' : ''),
+          content: this.liveAcc + (e?.name === 'AbortError' ? S.abortedMark : ''),
         });
         this.saveSessions();
       }
@@ -1249,7 +1247,7 @@ function getHtml(webview: vscode.Webview): string {
   ].join('; ');
 
   const html = `<!DOCTYPE html>
-<html lang="ru">
+<html lang="${LOCALE.slice(0, 2)}">
 <head>
 <meta charset="UTF-8">
 <meta http-equiv="Content-Security-Policy" content="${csp}">
@@ -1455,44 +1453,44 @@ function getHtml(webview: vscode.Webview): string {
 <body>
   <div id="tabs"></div>
   <div id="searchRow" style="display:none">
-    <input id="searchInput" placeholder="Поиск по истории всех диалогов… (Enter — к первому результату)" />
+    <input id="searchInput" placeholder="${S.searchPlaceholder}" />
     <div id="searchResults"></div>
   </div>
   <div id="messages"></div>
   <div id="inputArea">
     <div id="limitsCard" style="display:none">
       <div class="lhead">
-        <span id="limitsTitle">Лимиты подписки</span>
+        <span id="limitsTitle">${S.limitsTitle}</span>
         <span class="spacer"></span>
-        <button id="limitsRefresh" class="secondary" title="Обновить лимиты">⟳</button>
-        <button id="limitsClose" class="secondary" title="Закрыть">✕</button>
+        <button id="limitsRefresh" class="secondary" title="${S.limitsRefreshTitle}">⟳</button>
+        <button id="limitsClose" class="secondary" title="${S.closeTitle}">✕</button>
       </div>
       <div id="limitsBody"></div>
     </div>
     <div id="queueRow" style="display:none"></div>
     <div id="imgRow" style="display:none"></div>
-    <textarea id="input" placeholder="Спросите Kimi… (Enter — отправить, @файл — прикрепить, Ctrl+V — скриншот, /help — команды)"></textarea>
+    <textarea id="input" placeholder="${S.inputPlaceholder}"></textarea>
     <div class="row">
-      <label><input type="checkbox" id="agent" checked> Агент</label>
-      <select id="mode" title="Режим автономности">
-        <option value="plan">Планирование</option>
-        <option value="ask">Спросить всегда</option>
-        <option value="autoEdit">Авто-правки</option>
-        <option value="fullAuto">Полная автономность</option>
+      <label><input type="checkbox" id="agent" checked> ${S.agentLabel}</label>
+      <select id="mode" title="${S.modeSelectTitle}">
+        <option value="plan">${S.optPlan}</option>
+        <option value="ask">${S.optAsk}</option>
+        <option value="autoEdit">${S.optAutoEdit}</option>
+        <option value="fullAuto">${S.optFullAuto}</option>
       </select>
-      <button id="newChat" class="secondary" title="Новая сессия">Новый чат</button>
+      <button id="newChat" class="secondary" title="${S.newSessionTitle}">${S.newChatBtn}</button>
       <span class="spacer"></span>
-      <button id="lightning" class="secondary" title="Молния: прервать текущую задачу и отправить сообщение немедленно">⚡</button>
-      <button id="nudge" class="secondary" title="Пнуть: прервать зависший запрос и попросить агента продолжить" disabled>👢</button>
-      <button id="send">Отправить</button>
+      <button id="lightning" class="secondary" title="${S.lightningTitle}">⚡</button>
+      <button id="nudge" class="secondary" title="${S.nudgeTitle}" disabled>👢</button>
+      <button id="send">${S.sendLabel}</button>
     </div>
     <div class="row">
-      <label title="Модель Kimi">Модель</label>
-      <select id="model" title="Модель Kimi"></select>
-      <button id="refreshModels" class="secondary" title="Обновить список моделей с API">⟳</button>
+      <label title="${S.modelTitleWeb}">${S.modelLabel}</label>
+      <select id="model" title="${S.modelTitleWeb}"></select>
+      <button id="refreshModels" class="secondary" title="${S.refreshModelsTitle}">⟳</button>
       <span class="spacer"></span>
       <span class="authwrap">
-        <button id="authBtn" class="secondary" title="Аккаунт Kimi: вход, статус, выход">…</button>
+        <button id="authBtn" class="secondary" title="${S.authBtnTitle}">…</button>
         <div id="authMenu" class="authmenu" style="display:none"></div>
       </span>
     </div>
@@ -1510,6 +1508,7 @@ try { window.__kapi = acquireVsCodeApi(); } catch (e) {
   document.title = 'Kimi: acquireVsCodeApi failed: ' + e;
 }
 var vscode = window.__kapi;
+var L = ${JSON.stringify({ ...S, locale: LOCALE })};
 (function () {
   var messagesEl = document.getElementById('messages');
   var tabsEl = document.getElementById('tabs');
@@ -1540,12 +1539,12 @@ var vscode = window.__kapi;
       chip.className = 'imgchip';
       var im = document.createElement('img');
       im.src = url;
-      im.title = 'Скриншот ' + (i + 1) + ' — отправится со следующим сообщением';
+      im.title = L.shotTitle.replace('{0}', String(i + 1));
       chip.appendChild(im);
       var x = document.createElement('div');
       x.className = 'x';
       x.textContent = '✕';
-      x.title = 'Убрать';
+      x.title = L.removeTitle;
       x.addEventListener('click', function () {
         pendingImages.splice(i, 1);
         renderImgChips();
@@ -1604,10 +1603,10 @@ var vscode = window.__kapi;
   var settings = { ctrlEnter: false, timestamps: false };
 
   var HINTS = {
-    plan: '📋 Планирование: Kimi только читает проект и составляет план — ничего не меняет.',
-    ask: 'Агентский режим: Kimi читает проект, но каждая правка и команда — с вашего подтверждения.',
-    autoEdit: 'Авто-правки: файлы меняются без вопросов, команды в терминале — с подтверждением.',
-    fullAuto: '⚠️ Полная автономность: полный карт-бланш — Kimi сам правит файлы, запускает команды, пушит на GitHub и деплоит, ни о чём не спрашивая.'
+    plan: L.hintPlan,
+    ask: L.hintAsk,
+    autoEdit: L.hintAutoEdit,
+    fullAuto: L.hintFullAuto
   };
 
   function applyMode(mode) {
@@ -1667,29 +1666,29 @@ var vscode = window.__kapi;
     if (currentAuth.kind === 'oauth') {
       var head = document.createElement('div');
       head.className = 'mi head';
-      head.textContent = 'Аккаунт: ' + (currentAuth.label || 'Kimi');
+      head.textContent = L.accountHead.replace('{0}', currentAuth.label || 'Kimi');
       authMenu.appendChild(head);
       var sep = document.createElement('div');
       sep.className = 'sep';
       authMenu.appendChild(sep);
-      authMenu.appendChild(limitsMenuItem('📊 Лимиты использования'));
-      authMenu.appendChild(authMenuItem('🌐 Сменить способ входа', 'relogin'));
-      authMenu.appendChild(authMenuItem('🚪 Выйти из аккаунта', 'logoutOAuth'));
+      authMenu.appendChild(limitsMenuItem(L.limitsItem));
+      authMenu.appendChild(authMenuItem(L.changeLoginItem, 'relogin'));
+      authMenu.appendChild(authMenuItem(L.logoutItem, 'logoutOAuth'));
     } else if (currentAuth.kind === 'apiKey') {
       var head2 = document.createElement('div');
       head2.className = 'mi head';
-      head2.textContent = 'Вход по API-ключу';
+      head2.textContent = L.apiKeyHead;
       authMenu.appendChild(head2);
       var sep2 = document.createElement('div');
       sep2.className = 'sep';
       authMenu.appendChild(sep2);
-      authMenu.appendChild(limitsMenuItem('📊 Лимиты и баланс'));
-      authMenu.appendChild(authMenuItem('🔑 Сменить API-ключ', 'rekey'));
-      authMenu.appendChild(authMenuItem('🌐 Войти через сайт (OAuth)', 'relogin'));
-      authMenu.appendChild(authMenuItem('🚪 Удалить API-ключ', 'clearKey'));
+      authMenu.appendChild(limitsMenuItem(L.limitsBalanceItem));
+      authMenu.appendChild(authMenuItem(L.changeKeyItem, 'rekey'));
+      authMenu.appendChild(authMenuItem(L.loginOauthItem, 'relogin'));
+      authMenu.appendChild(authMenuItem(L.clearKeyItem, 'clearKey'));
     } else {
-      authMenu.appendChild(authMenuItem('🌐 Войти через сайт (OAuth)', 'relogin'));
-      authMenu.appendChild(authMenuItem('🔑 Ввести API-ключ', 'rekey'));
+      authMenu.appendChild(authMenuItem(L.loginOauthItem, 'relogin'));
+      authMenu.appendChild(authMenuItem(L.enterKeyItem, 'rekey'));
     }
   }
 
@@ -1702,13 +1701,13 @@ var vscode = window.__kapi;
   function fmtReset(iso) {
     var d = new Date(iso);
     if (isNaN(d.getTime())) return '';
-    return d.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    return d.toLocaleString(L.locale, { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
   }
 
   function barRow(name, entry) {
     var pct = Math.round((entry.usedRatio || 0) * 1000) / 10;
     var cls = pct >= 90 ? 'crit' : pct >= 70 ? 'warn' : '';
-    var reset = entry.resetAt ? '<div class="lreset">Сброс: ' + fmtReset(entry.resetAt) + '</div>' : '';
+    var reset = entry.resetAt ? '<div class="lreset">' + L.resetPrefix + fmtReset(entry.resetAt) + '</div>' : '';
     return '<div class="lrow"><div class="lname"><span>' + name + '</span><span>' + pct + '%</span></div>' +
       '<div class="lbar"><div class="' + cls + '" style="width:' + Math.min(100, pct) + '%"></div></div>' + reset + '</div>';
   }
@@ -1722,23 +1721,23 @@ var vscode = window.__kapi;
     var html = '';
     if (m.usage) {
       var u = m.usage;
-      if (u.planName) limitsTitle.textContent = 'План ' + u.planName;
-      if (u.limit5h) html += barRow('5-часовое окно (код)', u.limit5h);
-      if (u.limit7d) html += barRow('Недельный лимит', u.limit7d);
-      if (u.monthTotal) html += barRow('Месячный лимит (всего)', u.monthTotal);
-      if (u.monthCode) html += barRow('Месячный лимит (код)', u.monthCode);
-      if (!html) html = '<div class="lrow">Данных о лимитах нет.</div>';
+      if (u.planName) limitsTitle.textContent = L.planPrefix + u.planName;
+      if (u.limit5h) html += barRow(L.limit5h, u.limit5h);
+      if (u.limit7d) html += barRow(L.limit7d, u.limit7d);
+      if (u.monthTotal) html += barRow(L.limitMonthTotal, u.monthTotal);
+      if (u.monthCode) html += barRow(L.limitMonthCode, u.monthCode);
+      if (!html) html = '<div class="lrow">' + L.noLimitsData + '</div>';
       if (u.extraBalanceCents != null) {
-        html += '<div class="lrow"><div class="lname"><span>Extra Usage (кошелёк)</span><span>' +
+        html += '<div class="lrow"><div class="lname"><span>' + L.extraUsage + '</span><span>' +
           (u.extraBalanceCents / 100).toFixed(2) + ' ' + (u.extraCurrency || '') + '</span></div></div>';
       }
     } else if (m.balance) {
-      limitsTitle.textContent = 'Баланс платформы Moonshot';
-      html += '<div class="lrow"><div class="lname"><span>Доступно</span><span>¥' + Number(m.balance.available).toFixed(2) +
-        '</span></div><div class="lreset">средства ¥' + Number(m.balance.cash).toFixed(2) +
-        ' + ваучеры ¥' + Number(m.balance.voucher).toFixed(2) + '</div></div>';
+      limitsTitle.textContent = L.balanceTitle;
+      html += '<div class="lrow"><div class="lname"><span>' + L.balanceAvailable + '</span><span>¥' + Number(m.balance.available).toFixed(2) +
+        '</span></div><div class="lreset">' + L.balanceCashPart + Number(m.balance.cash).toFixed(2) +
+        L.balanceVoucherPart + Number(m.balance.voucher).toFixed(2) + '</div></div>';
     } else {
-      limitsBody.innerHTML = '<div class="lrow">Не удалось получить данные.</div>';
+      limitsBody.innerHTML = '<div class="lrow">' + L.limitsFailed + '</div>';
       return;
     }
     limitsBody.innerHTML = html;
@@ -1746,7 +1745,7 @@ var vscode = window.__kapi;
 
   function openLimits() {
     limitsCard.style.display = 'block';
-    limitsBody.innerHTML = '<div class="lrow">Загрузка…</div>';
+    limitsBody.innerHTML = '<div class="lrow">' + L.loading + '</div>';
     vscode.postMessage({ type: 'getLimits' });
     if (limitsTimer) clearInterval(limitsTimer);
     limitsTimer = setInterval(function () {
@@ -1764,7 +1763,7 @@ var vscode = window.__kapi;
 
   document.getElementById('limitsClose').addEventListener('click', closeLimits);
   document.getElementById('limitsRefresh').addEventListener('click', function () {
-    limitsBody.innerHTML = '<div class="lrow">Обновление…</div>';
+    limitsBody.innerHTML = '<div class="lrow">' + L.refreshing + '</div>';
     vscode.postMessage({ type: 'getLimits' });
   });
 
@@ -1787,13 +1786,13 @@ var vscode = window.__kapi;
   function setAuthState(st) {
     currentAuth = st && st.kind ? st : { kind: 'none' };
     if (currentAuth.kind === 'none') {
-      authBtn.textContent = '🔒 Войти';
+      authBtn.textContent = L.signInBtn;
       authBtn.style.color = 'var(--vscode-errorForeground)';
     } else if (currentAuth.kind === 'oauth') {
       authBtn.textContent = '✓ ' + (currentAuth.label || 'Kimi');
       authBtn.style.color = 'var(--vscode-testing-iconPassed)';
     } else {
-      authBtn.textContent = '✓ API-ключ';
+      authBtn.textContent = L.apiKeyOk;
       authBtn.style.color = 'var(--vscode-testing-iconPassed)';
     }
   }
@@ -1884,7 +1883,7 @@ var vscode = window.__kapi;
   function collapseGroup(g) {
     g.root.classList.add('collapsed');
     g.head.textContent =
-      '✅ Шаги агента (' + g.total + ')' + g.ts + ' — нажмите, чтобы развернуть';
+      L.stepsHeader + ' (' + g.total + ')' + g.ts + L.stepsExpand;
   }
 
   function ensureToolGroup() {
@@ -1896,7 +1895,7 @@ var vscode = window.__kapi;
     root.className = 'toolgroup';
     var head = document.createElement('div');
     head.className = 'tg-head';
-    head.textContent = '🔧 Инструменты';
+    head.textContent = L.toolsHeader;
     var list = document.createElement('div');
     list.className = 'tg-list';
     head.addEventListener('click', function () {
@@ -1919,7 +1918,7 @@ var vscode = window.__kapi;
       if (!toolGroup.lines[i].done) pending++;
     }
     toolGroup.head.textContent =
-      '🔧 Инструменты (' + toolGroup.total + ')' + toolGroup.ts + (pending > 0 ? ' — выполняется…' : '');
+      L.toolsHeader + ' (' + toolGroup.total + ')' + toolGroup.ts + (pending > 0 ? L.toolsRunningSuffix : '');
   }
 
   function addTool(name, status, detail) {
@@ -1971,7 +1970,7 @@ var vscode = window.__kapi;
     div.className = 'review';
     var head = document.createElement('div');
     head.className = 'rhead';
-    head.textContent = '📝 Изменения Kimi (' + files.length + ')';
+    head.textContent = L.reviewHeader + ' (' + files.length + ')';
     div.appendChild(head);
     files.forEach(function (f) {
       var row = document.createElement('div');
@@ -1979,18 +1978,18 @@ var vscode = window.__kapi;
       var name = document.createElement('span');
       name.className = 'rfile';
       name.textContent = (f.created ? '＋ ' : '✎ ') + f.file;
-      name.title = 'Показать diff';
+      name.title = L.showDiff;
       name.addEventListener('click', function () {
         vscode.postMessage({ type: 'diffFile', file: f.file });
       });
       row.appendChild(name);
       var ok = document.createElement('button');
-      ok.textContent = '✓'; ok.title = 'Принять изменения в этом файле';
+      ok.textContent = '✓'; ok.title = L.acceptFile;
       ok.addEventListener('click', function () {
         vscode.postMessage({ type: 'acceptFile', file: f.file });
       });
       var no = document.createElement('button');
-      no.textContent = '✗'; no.title = 'Откатить этот файл'; no.className = 'secondary';
+      no.textContent = '✗'; no.title = L.revertFileTitle; no.className = 'secondary';
       no.addEventListener('click', function () {
         vscode.postMessage({ type: 'rejectFile', file: f.file });
       });
@@ -2000,12 +1999,12 @@ var vscode = window.__kapi;
     var foot = document.createElement('div');
     foot.className = 'rrow';
     var okAll = document.createElement('button');
-    okAll.textContent = 'Принять все';
+    okAll.textContent = L.acceptAll;
     okAll.addEventListener('click', function () {
       vscode.postMessage({ type: 'acceptAll' });
     });
     var noAll = document.createElement('button');
-    noAll.textContent = 'Откатить все'; noAll.className = 'secondary';
+    noAll.textContent = L.revertAll; noAll.className = 'secondary';
     noAll.addEventListener('click', function () {
       vscode.postMessage({ type: 'rejectAll' });
     });
@@ -2024,18 +2023,18 @@ var vscode = window.__kapi;
       var tab = document.createElement('span');
       tab.className = 'tab' + (s.active ? ' active' : '');
       tab.textContent = s.title;
-      tab.title = s.title + ' (двойной клик — переименовать)';
+      tab.title = s.title + L.renameHint;
       tab.addEventListener('click', function () {
         vscode.postMessage({ type: 'switchSession', id: s.id });
       });
       tab.addEventListener('dblclick', function () {
-        var t = prompt('Название сессии:', s.title);
+        var t = prompt(L.sessionNamePrompt, s.title);
         if (t) vscode.postMessage({ type: 'renameSession', id: s.id, title: t });
       });
       var x = document.createElement('span');
       x.className = 'x';
       x.textContent = '✕';
-      x.title = 'Удалить сессию';
+      x.title = L.deleteSessionTitle;
       x.addEventListener('click', function (ev) {
         ev.stopPropagation();
         vscode.postMessage({ type: 'deleteSession', id: s.id });
@@ -2046,7 +2045,7 @@ var vscode = window.__kapi;
     var plus = document.createElement('span');
     plus.className = 'tab plus';
     plus.textContent = '＋';
-    plus.title = 'Новая сессия';
+    plus.title = L.newSessionTitle;
     plus.addEventListener('click', function () {
       vscode.postMessage({ type: 'newSession' });
     });
@@ -2054,7 +2053,7 @@ var vscode = window.__kapi;
     var searchTab = document.createElement('span');
     searchTab.className = 'tab';
     searchTab.textContent = '🔍';
-    searchTab.title = 'Поиск по истории диалогов';
+    searchTab.title = L.searchTabTitle;
     searchTab.addEventListener('click', toggleSearch);
     tabsEl.appendChild(searchTab);
   }
@@ -2102,7 +2101,7 @@ var vscode = window.__kapi;
     if (!items || items.length === 0) {
       var empty = document.createElement('div');
       empty.className = 'srempty';
-      empty.textContent = 'Ничего не найдено.';
+      empty.textContent = L.nothingFound;
       searchResults.appendChild(empty);
       return;
     }
@@ -2161,8 +2160,8 @@ var vscode = window.__kapi;
       var txt = document.createElement('span');
       txt.className = 'qt';
       var label = t + (imgs.length ? ' 📎×' + imgs.length : '');
-      txt.textContent = label || '📎 изображение';
-      txt.title = 'Нажмите, чтобы вернуть в поле ввода и отредактировать.\\n\\n' + t;
+      txt.textContent = label || L.imageLabel;
+      txt.title = L.imageTitle + '\\n\\n' + t;
       // редактирование: вернуть текст и картинки в поле ввода
       txt.addEventListener('click', function () {
         vscode.postMessage({ type: 'dequeue', index: i });
@@ -2174,21 +2173,21 @@ var vscode = window.__kapi;
       var up = document.createElement('span');
       up.className = 'qm';
       up.textContent = '↑';
-      up.title = 'Выше в очереди';
+      up.title = L.queueUp;
       up.addEventListener('click', function () {
         vscode.postMessage({ type: 'moveQueue', index: i, dir: -1 });
       });
       var down = document.createElement('span');
       down.className = 'qm';
       down.textContent = '↓';
-      down.title = 'Ниже в очереди';
+      down.title = L.queueDown;
       down.addEventListener('click', function () {
         vscode.postMessage({ type: 'moveQueue', index: i, dir: 1 });
       });
       var x = document.createElement('span');
       x.className = 'qx';
       x.textContent = '✕';
-      x.title = 'Убрать из очереди';
+      x.title = L.queueRemove;
       x.addEventListener('click', function () {
         vscode.postMessage({ type: 'dequeue', index: i });
       });
@@ -2203,13 +2202,13 @@ var vscode = window.__kapi;
 
   function setBusy(b) {
     busy = b;
-    sendBtn.textContent = b ? 'Стоп' : 'Отправить';
+    sendBtn.textContent = b ? L.stopLabel : L.sendLabel;
     sendBtn.title = b
-      ? 'Прервать текущую задачу (сообщения из очереди продолжат выполняться)'
+      ? L.stopTitle
       : '';
     nudgeBtn.disabled = !b;
     inputEl.placeholder = b
-      ? 'Агент занят: Enter — в очередь, ⚡ — прервать и отправить сразу, 👢 — пнуть'
+      ? L.busyPlaceholder
       : defaultPlaceholder;
     inputEl.disabled = false;
   }
@@ -2305,10 +2304,10 @@ var vscode = window.__kapi;
         addInfo(m.text);
         break;
       case 'usage': {
-        var uTxt = '⚡ запрос: ' + fmtTokens(m.request) + ' ток. · сессия: ' + fmtTokens(m.session) + ' ток.';
+        var uTxt = L.usageReq + fmtTokens(m.request) + L.usageTokSep + fmtTokens(m.session) + L.usageTokEnd;
         if (m.window > 0 && m.prompt > 0) {
           var pct = Math.round((m.prompt / m.window) * 100);
-          uTxt += ' · контекст: ' + fmtTokens(m.prompt) + '/' + Math.round(m.window / 1024) + 'k (' + pct + '%)';
+          uTxt += L.usageCtx + fmtTokens(m.prompt) + '/' + Math.round(m.window / 1024) + 'k (' + pct + '%)';
         }
         usageEl.textContent = uTxt;
         break;

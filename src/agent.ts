@@ -1,5 +1,6 @@
 import { ApiConfig, ChatMessage, streamChat, TokenUsage } from './api';
 import { executeTool, toolDefinitions } from './tools';
+import { S, fmt } from './i18n';
 import { getAutoCompactTokens, getAutoContinues, getIntentContinues, getMaxAgentSteps, isPlanMode } from './config';
 
 export interface AgentHooks {
@@ -49,17 +50,17 @@ function sketch(m: ChatMessage): string {
   if (m.role === 'assistant') {
     const parts: string[] = [];
     if (typeof m.content === 'string') parts.push(m.content.slice(0, 2000));
-    else if (Array.isArray(m.content)) parts.push('[медиа-контент]');
+    else if (Array.isArray(m.content)) parts.push(S.sketchMedia);
     if (m.tool_calls?.length) {
       parts.push(
-        '[вызовы инструментов: ' +
+        S.sketchToolCalls +
           m.tool_calls
             .map((c) => `${c.function.name}(${(c.function.arguments || '').slice(0, 200)})`)
             .join('; ') +
           ']'
       );
     }
-    return 'assistant: ' + (parts.join(' ') || '(пусто)');
+    return 'assistant: ' + (parts.join(' ') || S.sketchEmpty);
   }
   if (m.role === 'tool') {
     return `tool(${m.name ?? '?'}): ` + (m.content ?? '').slice(0, 800);
@@ -86,27 +87,24 @@ async function compactContext(
   const middle = messages.slice(2, s);
   const transcript = middle.map(sketch).join('\n\n').slice(0, 30000);
 
-  onInfo?.('🗜 Лимит контекста — архивирую сессию и продолжаю работу…');
+  onInfo?.(S.compactStart);
   try {
     const res = await streamChat(cfg, [
       {
         role: 'system',
-        content:
-          'Сожми ход работы AI-агента в краткую сводку (8–15 пунктов): что требовалось, что уже сделано, ' +
-          'какие файлы изменены, какие команды выполнены, важные находки и контекст, что осталось сделать. ' +
-          'Пиши на языке диалога. Сводка заменит середину диалога, поэтому сохрани всё критичное для продолжения работы.',
+        content: S.compactSystem,
       },
       { role: 'user', content: transcript },
     ]);
     const summary: ChatMessage[] = [
-      { role: 'user', content: `Архив предыдущей работы (автосжатие):\n${res.content}` },
-      { role: 'assistant', content: 'Принято. Продолжаю задачу с учётом этой сводки.' },
+      { role: 'user', content: S.compactUserPrefix + res.content },
+      { role: 'assistant', content: S.compactAck },
     ];
     messages.splice(2, s - 2, ...summary);
-    onInfo?.(`🗜 Контекст заархивирован: ${middle.length} сообщений → сводка (${res.usage?.total_tokens ?? '?'} ток.). Работа продолжается.`);
+    onInfo?.(fmt(S.compactDone, middle.length, res.usage?.total_tokens ?? '?'));
     return true;
   } catch (e) {
-    onInfo?.(`⚠️ Автоархивация не удалась: ${(e as Error)?.message ?? e}`);
+    onInfo?.(fmt(S.compactFailed, String((e as Error)?.message ?? e)));
     return false;
   }
 }
@@ -158,13 +156,13 @@ export async function runAgentLoop(
           !hooks.signal?.aborted
         ) {
           authRetries++;
-          hooks.onInfo?.('🔄 Токен доступа истёк — обновляю авторизацию…');
+          hooks.onInfo?.(S.tokenRefresh);
           if (await hooks.onAuthRefresh()) {
             step--;
             continue;
           }
           throw new Error(
-            'Сессия входа Kimi истекла. Войдите заново: кнопка «🔒 Войти» в панели или команда «Kimi: Войти через сайт».'
+            S.sessionExpired
           );
         }
         // переполнение контекста → архивируем и повторяем шаг
@@ -195,13 +193,12 @@ export async function runAgentLoop(
           lastFinalText = finalText;
           intentContinues++;
           hooks.onInfo?.(
-            `🔁 Агент собрался продолжить, но остановился — подталкиваю автоматически (${intentContinues}/${maxIntentContinues})…`
+            fmt(S.intentNudge, intentContinues, maxIntentContinues)
           );
           messages.push({
             role: 'user',
             content:
-              'Ты остановился на полуслове, хотя собирался продолжить. Немедленно продолжай выполнение задачи инструментами, ' +
-              'не переспрашивая. Завершай ход только когда задача полностью выполнена.',
+              S.intentNudgeUser,
           });
           continue;
         }
@@ -216,7 +213,7 @@ export async function runAgentLoop(
           result = await executeTool(name, call.function.arguments, hooks.signal);
           hooks.onTool(name, 'done');
         } catch (e: any) {
-          result = `Ошибка инструмента: ${e?.message ?? String(e)}`;
+          result = fmt(S.toolError, e?.message ?? String(e));
           hooks.onTool(name, 'error', e?.message);
         }
         messages.push({
@@ -242,17 +239,16 @@ export async function runAgentLoop(
     if (hooks.signal?.aborted || continues >= maxContinues) break;
     continues++;
     hooks.onInfo?.(
-      `🔁 Лимит шагов (${maxSteps}) исчерпан — продолжаю работу автоматически (цикл ${continues}/${maxContinues})…`
+      fmt(S.stepsExhausted, maxSteps, continues, maxContinues)
     );
     messages.push({
       role: 'user',
       content:
-        'Продолжай выполнение задачи с того места, где остановился. ' +
-        'Не переспрашивай и не останавливайся, пока задача не будет полностью выполнена.',
+        S.continuePrompt,
     });
   }
 
-  const warn = '\n\n⚠️ Достигнут лимит шагов агента. Ответ может быть неполным — спросите «продолжи».';
+  const warn = S.stepsLimitWarn;
   hooks.onToken(warn);
   messages.push({ role: 'assistant', content: warn });
 }

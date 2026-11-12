@@ -51,6 +51,7 @@ Kimi in the status bar — bottom right, next to Claude Code:
 
 ## Features
 
+- **Bilingual UI** — Russian and English, chosen automatically from the VS Code display language (Russian VS Code → Russian chat, anything else → English).
 - **Sidebar chat panel** — streaming conversation with Kimi. The selected code is automatically attached as context.
 - **Code actions** — from the editor context menu (select code → right click):
   - `Kimi: Explain Selection`, `Kimi: Fix Selection`, `Kimi: Refactor Selection`, `Kimi: Generate Tests`

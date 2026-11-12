@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { ApiConfig } from './api';
 import { getOAuthAccessToken, loginInteractive } from './auth';
+import { S } from './i18n';
 
 export type ApiConfigNoKey = Omit<ApiConfig, 'apiKey'>;
 
@@ -48,10 +49,10 @@ export async function setModel(model: string): Promise<void> {
 export type PermissionMode = 'plan' | 'ask' | 'autoEdit' | 'fullAuto';
 
 export const PERMISSION_MODE_LABELS: Record<PermissionMode, string> = {
-  plan: 'Планирование (только чтение)',
-  ask: 'Спросить всегда',
-  autoEdit: 'Авто-правки (команды — с подтверждением)',
-  fullAuto: 'Полная автономность',
+  plan: S.modePlan,
+  ask: S.modeAsk,
+  autoEdit: S.modeAutoEdit,
+  fullAuto: S.modeFullAuto,
 };
 
 export function getPermissionMode(): PermissionMode {
@@ -174,19 +175,19 @@ export async function ensureAuth(
   const pick = await vscode.window.showQuickPick(
     [
       {
-        label: '$(globe) Войти через сайт Kimi',
-        description: 'рекомендуется',
-        detail: 'Откроется браузер, вход по коду — как в официальном Kimi Code CLI. Нужна подписка Kimi Membership.',
+        label: S.loginOauthLabel,
+        description: S.recommended,
+        detail: S.loginOauthDetail,
         authKind: 'oauth' as const,
       },
       {
-        label: '$(key) Ввести API-ключ',
+        label: S.loginKeyLabel,
         description: 'platform.moonshot.ai',
-        detail: 'Оплата по токенам через открытую платформу Moonshot.',
+        detail: S.loginKeyDetail,
         authKind: 'apiKey' as const,
       },
     ],
-    { title: 'Kimi: вход в аккаунт' }
+    { title: S.loginTitle }
   );
   if (!pick) return undefined;
   if (pick.authKind === 'oauth') {
@@ -206,7 +207,7 @@ export async function ensureApiKey(
   if (!key || force) {
     const v = await vscode.window.showInputBox({
       title: 'Kimi API Key',
-      prompt: 'Введите API-ключ Moonshot (platform.moonshot.ai → API Key Management)',
+      prompt: S.apiKeyPrompt,
       password: true,
       ignoreFocusOut: true,
     });

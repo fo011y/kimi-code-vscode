@@ -13,16 +13,17 @@ import {
 } from './config';
 import { ApiConfig, ChatMessage, contextWindowForModel, FALLBACK_MODELS, fetchBalance, fetchPlanUsage, listModels, streamChat } from './api';
 import { getAuthState } from './auth';
+import { S, fmt, LOCALE } from './i18n';
 
 function selectedCode(): { editor: vscode.TextEditor; text: string; rel: string } | undefined {
   const editor = vscode.window.activeTextEditor;
   if (!editor || editor.selection.isEmpty) {
-    vscode.window.showWarningMessage('Сначала выделите код в редакторе.');
+    vscode.window.showWarningMessage(S.selectCodeFirst);
     return undefined;
   }
   const text = editor.document.getText(editor.selection);
   if (!text.trim()) {
-    vscode.window.showWarningMessage('Выделение пустое.');
+    vscode.window.showWarningMessage(S.selEmpty);
     return undefined;
   }
   return { editor, text, rel: vscode.workspace.asRelativePath(editor.document.uri) };
@@ -37,8 +38,8 @@ async function editSelection(context: vscode.ExtensionContext): Promise<void> {
   const doc = editor.document;
 
   const instruction = await vscode.window.showInputBox({
-    title: 'Kimi: правка кода',
-    prompt: 'Что изменить в выделенном коде?',
+    title: S.editTitle,
+    prompt: S.editPrompt,
     ignoreFocusOut: true,
   });
   if (!instruction) return;
@@ -48,17 +49,17 @@ async function editSelection(context: vscode.ExtensionContext): Promise<void> {
   const cfg: ApiConfig = { ...getApiConfig(), apiKey: auth.token, baseUrl: auth.baseUrl };
 
   await vscode.window.withProgress(
-    { location: vscode.ProgressLocation.Notification, title: 'Kimi редактирует код…' },
+    { location: vscode.ProgressLocation.Notification, title: S.editProgress },
     async () => {
       const messages: ChatMessage[] = [
         {
           role: 'system',
           content:
-            'Ты — редактор кода. Возвращай ТОЛЬКО изменённый фрагмент кода в одном markdown-блоке, без пояснений. Сохраняй стиль и отступы оригинала.',
+            S.editSystem,
         },
         {
           role: 'user',
-          content: `Файл: ${rel} (${doc.languageId})\nФрагмент:\n\`\`\`${doc.languageId}\n${selText}\n\`\`\`\nЗадача: ${instruction}`,
+          content: fmt(S.editUserTpl, rel, doc.languageId, selText, instruction),
         },
       ];
 
@@ -67,7 +68,7 @@ async function editSelection(context: vscode.ExtensionContext): Promise<void> {
       const m = code.match(/```\w*\n?([\s\S]*?)```/);
       code = m ? m[1].replace(/\n$/, '') : code;
       if (!code.trim()) {
-        vscode.window.showErrorMessage('Kimi вернул пустой ответ.');
+        vscode.window.showErrorMessage(S.emptyAnswer);
         return;
       }
 
@@ -78,14 +79,14 @@ async function editSelection(context: vscode.ExtensionContext): Promise<void> {
 
       const left = await vscode.workspace.openTextDocument({ content: original, language: doc.languageId });
       const right = await vscode.workspace.openTextDocument({ content: modified, language: doc.languageId });
-      await vscode.commands.executeCommand('vscode.diff', left.uri, right.uri, `Kimi: правка ${rel}`);
+      await vscode.commands.executeCommand('vscode.diff', left.uri, right.uri, fmt(S.diffTitle, rel));
 
       const pick = await vscode.window.showInformationMessage(
-        'Применить правку Kimi к выделенному коду?',
+        S.applyConfirm,
         { modal: true },
-        'Применить'
+        S.applyBtn
       );
-      if (pick !== 'Применить') return;
+      if (pick !== S.applyBtn) return;
 
       await editor.edit((b) => b.replace(range, code));
     }
@@ -123,12 +124,12 @@ export function activate(context: vscode.ExtensionContext): void {
   const updateStatusBar = async (): Promise<void> => {
     const st = await getAuthState(context);
     if (st.kind === 'none') {
-      statusBar.text = '$(sparkle) Kimi: Войти';
-      statusBar.tooltip = 'Kimi: нажмите, чтобы войти в аккаунт';
+      statusBar.text = S.sbSignIn;
+      statusBar.tooltip = S.sbSignInTooltip;
       statusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
     } else {
       statusBar.text = '$(sparkle) Kimi';
-      statusBar.tooltip = `Kimi: ${st.kind === 'oauth' ? `аккаунт ${st.label}` : 'API-ключ'} · модель ${getModel()}`;
+      statusBar.tooltip = fmt(S.sbTooltip, st.kind === 'oauth' ? fmt(S.sbAccount, st.label) : 'API-ключ', getModel());
       statusBar.backgroundColor = undefined;
     }
     statusBar.show();
@@ -150,7 +151,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
   cmd('kimi.setApiKey', async () => {
     await ensureApiKey(context, true);
-    vscode.window.showInformationMessage('API-ключ Kimi сохранён.');
+    vscode.window.showInformationMessage(S.keySaved);
     void provider.postAuthState();
     void updateStatusBar();
   });
@@ -170,7 +171,7 @@ export function activate(context: vscode.ExtensionContext): void {
     const { logoutOAuth } = await import('./auth');
     if (target === 'oauth' || target === 'all') await logoutOAuth(context);
     if (target === 'apiKey' || target === 'all') await context.secrets.delete('kimi.apiKey');
-    vscode.window.showInformationMessage('Kimi: вы вышли из аккаунта.');
+    vscode.window.showInformationMessage(S.loggedOut);
     void provider.postAuthState();
     void updateStatusBar();
   });
@@ -183,14 +184,14 @@ export function activate(context: vscode.ExtensionContext): void {
     }
     const pick = await vscode.window.showQuickPick(
       [
-        { label: '$(comment-discussion) Открыть чат', id: 'chat' },
-        { label: '$(graph) Лимиты использования', id: 'usage' },
-        { label: '$(symbol-misc) Сменить модель', id: 'model' },
-        { label: '$(shield) Режим автономности', id: 'mode' },
-        { label: '$(refresh) Сменить способ входа', id: 'relogin' },
-        { label: '$(sign-out) Выйти из аккаунта', id: 'logout' },
+        { label: S.menuChat, id: 'chat' },
+        { label: S.menuUsage, id: 'usage' },
+        { label: S.menuModel, id: 'model' },
+        { label: S.menuMode, id: 'mode' },
+        { label: S.menuRelogin, id: 'relogin' },
+        { label: S.menuLogout, id: 'logout' },
       ],
-      { title: `Kimi: ${st.kind === 'oauth' ? `аккаунт ${st.label}` : 'API-ключ'}` }
+      { title: 'Kimi: ' + (st.kind === 'oauth' ? fmt(S.sbAccount, st.label) : 'API-ключ') }
     );
     if (!pick) return;
     if (pick.id === 'chat') await vscode.commands.executeCommand('kimi.focus');
@@ -204,7 +205,7 @@ export function activate(context: vscode.ExtensionContext): void {
   cmd('kimi.showUsage', async () => {
     const auth = await getAuthQuiet(context);
     if (!auth) {
-      vscode.window.showInformationMessage('Kimi: сначала войдите в аккаунт.');
+      vscode.window.showInformationMessage(S.signInFirst);
       return;
     }
     const model = getModel();
@@ -212,16 +213,16 @@ export function activate(context: vscode.ExtensionContext): void {
     const info = provider.getUsageInfo();
     const pct = info.lastPromptTokens > 0 ? Math.round((info.lastPromptTokens / win) * 100) : 0;
     const lines: string[] = [
-      `Модель: ${model} (окно ${Math.round(win / 1024)}k токенов)`,
-      `Контекст текущего диалога: ${info.lastPromptTokens.toLocaleString('ru-RU')} токенов (${pct}% окна)`,
-      `Израсходовано за сессию VS Code: ${info.sessionTokens.toLocaleString('ru-RU')} токенов`,
+      fmt(S.usageModel, model, Math.round(win / 1024)),
+      fmt(S.usageContext, info.lastPromptTokens.toLocaleString(LOCALE), pct),
+      fmt(S.usageSession, info.sessionTokens.toLocaleString(LOCALE)),
     ];
     if (auth.kind === 'apiKey') {
       const bal = await fetchBalance(auth.baseUrl, auth.token);
       lines.push(
         bal
-          ? `Баланс платформы: ¥${bal.available.toFixed(2)} (средства ¥${bal.cash.toFixed(2)} + ваучеры ¥${bal.voucher.toFixed(2)})`
-          : 'Баланс платформы: не удалось получить (см. platform.moonshot.ai)'
+          ? fmt(S.usageBalance, bal.available.toFixed(2), bal.cash.toFixed(2), bal.voucher.toFixed(2))
+          : S.usageBalanceFail
       );
     } else {
       try {
@@ -233,23 +234,23 @@ export function activate(context: vscode.ExtensionContext): void {
           const d = new Date(e.resetAt);
           return Number.isNaN(d.getTime())
             ? ''
-            : ` (сброс ${d.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })})`;
+            : fmt(S.usageReset, d.toLocaleString(LOCALE, { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }));
         };
-        if (u.planName) lines.push(`План подписки: ${u.planName}`);
-        lines.push(`5-часовое окно (код): ${fmtPct(u.limit5h)}${fmtReset(u.limit5h)}`);
-        if (u.limit7d) lines.push(`Недельный лимит: ${fmtPct(u.limit7d)}${fmtReset(u.limit7d)}`);
-        if (u.monthTotal) lines.push(`Месячный лимит (всего): ${fmtPct(u.monthTotal)}${fmtReset(u.monthTotal)}`);
-        if (u.monthCode) lines.push(`Месячный лимит (код): ${fmtPct(u.monthCode)}${fmtReset(u.monthCode)}`);
+        if (u.planName) lines.push(fmt(S.usagePlan, u.planName));
+        lines.push(fmt(S.usage5h, fmtPct(u.limit5h), fmtReset(u.limit5h)));
+        if (u.limit7d) lines.push(fmt(S.usage7d, fmtPct(u.limit7d), fmtReset(u.limit7d)));
+        if (u.monthTotal) lines.push(fmt(S.usageMonthTotal, fmtPct(u.monthTotal), fmtReset(u.monthTotal)));
+        if (u.monthCode) lines.push(fmt(S.usageMonthCode, fmtPct(u.monthCode), fmtReset(u.monthCode)));
         if (u.extraBalanceCents != null) {
           lines.push(`Extra Usage: ${(u.extraBalanceCents / 100).toFixed(2)} ${u.extraCurrency ?? ''}`);
         }
       } catch (e) {
-        lines.push(`Лимиты подписки: не удалось получить (${e instanceof Error ? e.message : String(e)})`);
+        lines.push(fmt(S.usageLimitsFail, e instanceof Error ? e.message : String(e)));
       }
     }
-    const openBtn = '🌐 Открыть консоль Kimi Code';
+    const openBtn = S.openConsole;
     const r = await vscode.window.showInformationMessage(
-      'Kimi: лимиты использования',
+      S.usageTitle,
       { modal: true, detail: lines.join('\n') },
       openBtn
     );
@@ -263,21 +264,21 @@ export function activate(context: vscode.ExtensionContext): void {
     const hadOAuth = await hasOAuthLogin(context);
     const hadKey = (await context.secrets.get('kimi.apiKey')) !== undefined;
     if (!hadOAuth && !hadKey) {
-      vscode.window.showInformationMessage('Kimi: вы не вошли в аккаунт.');
+      vscode.window.showInformationMessage(S.notSignedIn);
       return;
     }
     const what = await vscode.window.showQuickPick(
       [
-        ...(hadOAuth ? [{ label: '$(globe) Выйти из аккаунта Kimi (OAuth)', target: 'oauth' as const }] : []),
-        ...(hadKey ? [{ label: '$(key) Удалить API-ключ', target: 'apiKey' as const }] : []),
-        { label: '$(trash) Выйти везде', target: 'all' as const },
+        ...(hadOAuth ? [{ label: S.logoutOauthItem, target: 'oauth' as const }] : []),
+        ...(hadKey ? [{ label: S.logoutKeyItem, target: 'apiKey' as const }] : []),
+        { label: S.logoutAllItem, target: 'all' as const },
       ],
-      { title: 'Kimi: выход' }
+      { title: S.logoutTitle }
     );
     if (!what) return;
     if (what.target === 'oauth' || what.target === 'all') await logoutOAuth(context);
     if (what.target === 'apiKey' || what.target === 'all') await context.secrets.delete('kimi.apiKey');
-    vscode.window.showInformationMessage('Kimi: вы вышли из аккаунта.');
+    vscode.window.showInformationMessage(S.loggedOut);
     provider.postSettings();
     void provider.postAuthState();
     void updateStatusBar();
@@ -293,15 +294,15 @@ export function activate(context: vscode.ExtensionContext): void {
         label: m === current ? `$(check) ${PERMISSION_MODE_LABELS[m]}` : PERMISSION_MODE_LABELS[m],
         description:
           m === 'plan'
-            ? 'Kimi только читает проект и составляет план'
+            ? S.modeDescPlan
             : m === 'ask'
-              ? 'каждая правка и команда — с подтверждением'
+              ? S.modeDescAsk
               : m === 'autoEdit'
-                ? 'файлы — без вопросов, команды — с подтверждением'
-                : '⚠️ всё без вопросов, Kimi работает самостоятельно',
+                ? S.modeDescAutoEdit
+                : S.modeDescFullAuto,
         mode: m,
       })),
-      { title: 'Kimi: режим автономности' }
+      { title: S.modeTitle }
     );
     if (pick) await provider.applyMode(pick.mode);
   });
@@ -320,31 +321,31 @@ export function activate(context: vscode.ExtensionContext): void {
     const pick = await vscode.window.showQuickPick(
       models.map((m) => ({
         label: m,
-        description: m === current ? '$(check) текущая' : '',
+        description: m === current ? S.currentMark : '',
       })),
-      { title: 'Kimi: выбор модели' }
+      { title: S.modelTitle }
     );
     if (pick) await provider.applyModel(pick.label);
   });
 
   cmd('kimi.explainSelection', () => {
     const s = selectedCode();
-    if (s) void provider.askFromCommand(`Объясни, что делает этот код:\n\`\`\`${s.editor.document.languageId}\n${s.text}\n\`\`\``);
+    if (s) void provider.askFromCommand(fmt(S.explainPrompt, s.editor.document.languageId, s.text));
   });
 
   cmd('kimi.fixSelection', () => {
     const s = selectedCode();
-    if (s) void provider.askFromCommand(`Найди и исправь ошибки в этом коде. Покажи исправленный вариант и кратко объясни, что было не так:\n\`\`\`${s.editor.document.languageId}\n${s.text}\n\`\`\``);
+    if (s) void provider.askFromCommand(fmt(S.fixPrompt, s.editor.document.languageId, s.text));
   });
 
   cmd('kimi.refactorSelection', () => {
     const s = selectedCode();
-    if (s) void provider.askFromCommand(`Отрефактори этот код: улучши читаемость и структуру, не меняя поведение:\n\`\`\`${s.editor.document.languageId}\n${s.text}\n\`\`\``);
+    if (s) void provider.askFromCommand(fmt(S.refactorPrompt, s.editor.document.languageId, s.text));
   });
 
   cmd('kimi.addTests', () => {
     const s = selectedCode();
-    if (s) void provider.askFromCommand(`Напиши юнит-тесты для этого кода (подбери подходящий фреймворк по языку):\n\`\`\`${s.editor.document.languageId}\n${s.text}\n\`\`\``);
+    if (s) void provider.askFromCommand(fmt(S.testsPrompt, s.editor.document.languageId, s.text));
   });
 
   cmd('kimi.editSelection', () => editSelection(context));
