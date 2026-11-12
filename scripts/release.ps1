@@ -50,3 +50,6 @@ Write-Output ("release id: " + $rel.id)
 $vsix = 'D:\Jobe\Soft\kimi-code\kimi-code-0.9.7.vsix'
 $up = Invoke-RestMethod -Method Post -Uri ("https://uploads.github.com/repos/$repo/releases/" + $rel.id + "/assets?name=kimi-code-0.9.7.vsix") -Headers $headers -InFile $vsix -ContentType 'application/octet-stream'
 Write-Output ("asset: " + $up.browser_download_url)
+# Постоянное имя ассета — ссылка releases/latest/download/kimi-code.vsix в README никогда не устаревает
+$up2 = Invoke-RestMethod -Method Post -Uri ("https://uploads.github.com/repos/$repo/releases/" + $rel.id + "/assets?name=kimi-code.vsix") -Headers $headers -InFile $vsix -ContentType 'application/octet-stream'
+Write-Output ("asset (stable name): " + $up2.browser_download_url)

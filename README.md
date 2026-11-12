@@ -13,12 +13,12 @@
 
 ## 📥 Скачать и установить
 
-**➡️ [Скачать kimi-code-0.8.0.vsix (последний релиз)](https://github.com/fo011y/kimi-code-vscode/releases/latest/download/kimi-code-0.8.0.vsix)**
+**➡️ [Скачать kimi-code.vsix (последний релиз)](https://github.com/fo011y/kimi-code-vscode/releases/latest/download/kimi-code.vsix)**
 
 Затем установите:
 
 ```bash
-code --install-extension kimi-code-0.8.0.vsix
+code --install-extension kimi-code.vsix
 ```
 
 Или в VS Code: `Ctrl+Shift+P` → **Extensions: Install from VSIX…** → выберите скачанный файл.

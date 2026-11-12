@@ -13,12 +13,12 @@ A VS Code extension that embeds [Kimi](https://platform.moonshot.ai) (Moonshot A
 
 ## 📥 Download & Install
 
-**➡️ [Download kimi-code-0.8.0.vsix (latest release)](https://github.com/fo011y/kimi-code-vscode/releases/latest/download/kimi-code-0.8.0.vsix)**
+**➡️ [Download kimi-code.vsix (latest release)](https://github.com/fo011y/kimi-code-vscode/releases/latest/download/kimi-code.vsix)**
 
 Then install:
 
 ```bash
-code --install-extension kimi-code-0.8.0.vsix
+code --install-extension kimi-code.vsix
 ```
 
 Or in VS Code: `Ctrl+Shift+P` → **Extensions: Install from VSIX…** → pick the downloaded file.
