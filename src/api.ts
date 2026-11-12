@@ -117,6 +117,85 @@ export async function fetchBalance(baseUrl: string, apiKey: string): Promise<Bal
   }
 }
 
+export interface QuotaEntry {
+  /** Использовано, доля 0..1. */
+  usedRatio: number;
+  /** Время сброса окна, RFC3339. */
+  resetAt?: string;
+}
+
+/** Лимиты подписки Kimi (как на сайте kimi.ai → подписка). */
+export interface PlanUsage {
+  limit5h?: QuotaEntry;
+  limit7d?: QuotaEntry;
+  monthTotal?: QuotaEntry;
+  monthCode?: QuotaEntry;
+  /** Extra Usage: остаток кошелька в центах. */
+  extraBalanceCents?: number;
+  extraCurrency?: string;
+  /** Название плана подписки (Plus/Pro/Max…), из /userinfo. */
+  planName?: string;
+}
+
+/**
+ * Лимиты подписки Kimi Code: GET {baseUrl}/usages (OAuth-токен).
+ * Название плана дочитывается из /userinfo (не критично при ошибке).
+ */
+export async function fetchPlanUsage(baseUrl: string, apiKey: string): Promise<PlanUsage> {
+  const base = baseUrl.replace(/\/+$/, '');
+  const res = await fetch(`${base}/usages`, {
+    headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
+    signal: AbortSignal.timeout(8_000),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Moonshot API ${res.status}: ${text.slice(0, 300)}`);
+  }
+  const json: any = await res.json();
+  const u = json?.usages ?? {};
+  const entry = (raw: any): QuotaEntry | undefined => {
+    const r = Number(raw?.used_ratio);
+    if (!Number.isFinite(r)) return undefined;
+    const resetAt =
+      typeof raw?.reset_time === 'string' && raw.reset_time ? raw.reset_time : undefined;
+    return { usedRatio: r, resetAt };
+  };
+  const out: PlanUsage = {
+    limit5h: entry(u.limit_5h),
+    limit7d: entry(u.limit_7d),
+    monthTotal: entry(u.limit_month_total),
+    monthCode: entry(u.limit_month_code),
+  };
+  const bw = json?.boosterWallet;
+  if (bw?.balance?.type === 'BOOSTER') {
+    const amt = Number(bw.balance.amountLeft);
+    if (Number.isFinite(amt) && amt > 0) {
+      out.extraBalanceCents = Math.max(1, Math.round(amt / 1_000_000));
+      out.extraCurrency =
+        typeof bw?.monthlyUsed?.currency === 'string' && bw.monthlyUsed.currency
+          ? bw.monthlyUsed.currency
+          : 'USD';
+    }
+  }
+  // Название плана — из /userinfo; ошибки глотаем, это украшение.
+  try {
+    const ui = await fetch(`${base}/userinfo`, {
+      headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
+      signal: AbortSignal.timeout(8_000),
+    });
+    if (ui.ok) {
+      const uj: any = await ui.json();
+      const info = uj?.userInfo ?? uj;
+      if (typeof info?.userLevelName === 'string' && info.userLevelName) {
+        out.planName = info.userLevelName;
+      }
+    }
+  } catch {
+    // план не критичен
+  }
+  return out;
+}
+
 export async function streamChat(
   cfg: ApiConfig,
   messages: ChatMessage[],

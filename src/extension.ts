@@ -11,7 +11,7 @@ import {
   PERMISSION_MODE_LABELS,
   PermissionMode,
 } from './config';
-import { ApiConfig, ChatMessage, contextWindowForModel, FALLBACK_MODELS, fetchBalance, listModels, streamChat } from './api';
+import { ApiConfig, ChatMessage, contextWindowForModel, FALLBACK_MODELS, fetchBalance, fetchPlanUsage, listModels, streamChat } from './api';
 import { getAuthState } from './auth';
 
 function selectedCode(): { editor: vscode.TextEditor; text: string; rel: string } | undefined {
@@ -212,10 +212,28 @@ export function activate(context: vscode.ExtensionContext): void {
           : 'Баланс платформы: не удалось получить (см. platform.moonshot.ai)'
       );
     } else {
-      lines.push(
-        'Квота подписки Kimi: 5-часовое скользящее окно + месячный лимит. ' +
-          'Точный остаток и статус rate-limit — в консоли Kimi Code.'
-      );
+      try {
+        const u = await fetchPlanUsage(auth.baseUrl, auth.token);
+        const fmtPct = (e?: { usedRatio: number }) =>
+          e ? `${(e.usedRatio * 100).toFixed(1)}%` : '—';
+        const fmtReset = (e?: { resetAt?: string }) => {
+          if (!e?.resetAt) return '';
+          const d = new Date(e.resetAt);
+          return Number.isNaN(d.getTime())
+            ? ''
+            : ` (сброс ${d.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })})`;
+        };
+        if (u.planName) lines.push(`План подписки: ${u.planName}`);
+        lines.push(`5-часовое окно (код): ${fmtPct(u.limit5h)}${fmtReset(u.limit5h)}`);
+        if (u.limit7d) lines.push(`Недельный лимит: ${fmtPct(u.limit7d)}${fmtReset(u.limit7d)}`);
+        if (u.monthTotal) lines.push(`Месячный лимит (всего): ${fmtPct(u.monthTotal)}${fmtReset(u.monthTotal)}`);
+        if (u.monthCode) lines.push(`Месячный лимит (код): ${fmtPct(u.monthCode)}${fmtReset(u.monthCode)}`);
+        if (u.extraBalanceCents != null) {
+          lines.push(`Extra Usage: ${(u.extraBalanceCents / 100).toFixed(2)} ${u.extraCurrency ?? ''}`);
+        }
+      } catch (e) {
+        lines.push(`Лимиты подписки: не удалось получить (${e instanceof Error ? e.message : String(e)})`);
+      }
     }
     const openBtn = '🌐 Открыть консоль Kimi Code';
     const r = await vscode.window.showInformationMessage(

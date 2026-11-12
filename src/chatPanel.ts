@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { ApiConfig, ChatMessage, contextWindowForModel, FALLBACK_MODELS, listModels, streamChat, TokenUsage } from './api';
+import { ApiConfig, ChatMessage, contextWindowForModel, FALLBACK_MODELS, fetchBalance, fetchPlanUsage, listModels, streamChat, TokenUsage } from './api';
 import { runAgentLoop, isAuthError, isContextOverflowError } from './agent';
 import { forceRefreshOAuth, getAuthState } from './auth';
 import { CheckpointEntry, CheckpointStore } from './checkpoints';
@@ -308,6 +308,41 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     });
   }
 
+  /** Лимиты подписки (OAuth) или баланс платформы (API-ключ) → веб-панель. */
+  private async postLimits(): Promise<void> {
+    const auth = await getAuthQuiet(this.context);
+    if (!auth) {
+      this.post({ type: 'limits', error: 'Вход не выполнен. Войдите через сайт Kimi или укажите API-ключ.' });
+      return;
+    }
+    const fetchUsage = async (token: string, baseUrl: string) => {
+      if (auth.kind === 'oauth') {
+        const usage = await fetchPlanUsage(baseUrl, token);
+        this.post({ type: 'limits', usage });
+      } else {
+        const bal = await fetchBalance(baseUrl, token);
+        this.post({ type: 'limits', balance: bal ?? null });
+      }
+    };
+    try {
+      await fetchUsage(auth.token, auth.baseUrl);
+    } catch (e) {
+      // 401: токен мог протухнуть — обновляем и повторяем один раз
+      if (auth.kind === 'oauth' && isAuthError(e)) {
+        const fresh = await forceRefreshOAuth(this.context);
+        if (fresh) {
+          try {
+            await fetchUsage(fresh.token, fresh.baseUrl);
+            return;
+          } catch {
+            // упадёт в общий error ниже
+          }
+        }
+      }
+      this.post({ type: 'limits', error: e instanceof Error ? e.message : String(e) });
+    }
+  }
+
   /** Статистика расхода токенов для команды «Лимиты использования». */
   getUsageInfo(): { lastPromptTokens: number; sessionTokens: number } {
     return { lastPromptTokens: this.lastPromptTokens, sessionTokens: this.sessionTokens };
@@ -360,6 +395,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         break;
       case 'refreshModels':
         await this.refreshModels();
+        break;
+      case 'getLimits':
+        await this.postLimits();
         break;
       case 'authAction':
         if (m.action === 'relogin') await vscode.commands.executeCommand('kimi.login');
@@ -1258,6 +1296,20 @@ function getHtml(webview: vscode.Webview): string {
   .authmenu .mi.head { opacity: 0.55; cursor: default; }
   .authmenu .mi.head:hover { background: transparent; }
   .authmenu .sep { height: 1px; margin: 4px 0; background: var(--vscode-menu-border, #454545); }
+  #limitsCard {
+    margin-bottom: 8px; padding: 10px 12px; border-radius: 8px;
+    border: 1px solid var(--vscode-panel-border);
+    background: var(--vscode-editor-background); font-size: 0.9em;
+  }
+  #limitsCard .lhead { display: flex; align-items: center; gap: 6px; font-weight: bold; margin-bottom: 6px; }
+  #limitsCard .lhead button { padding: 1px 8px; font-size: 0.85em; }
+  .lrow { margin: 8px 0; }
+  .lrow .lname { display: flex; justify-content: space-between; opacity: 0.9; margin-bottom: 3px; }
+  .lrow .lreset { opacity: 0.55; font-size: 0.85em; margin-top: 2px; }
+  .lbar { height: 8px; border-radius: 4px; background: var(--vscode-input-background); overflow: hidden; }
+  .lbar > div { height: 100%; background: var(--vscode-progressBar-background, var(--vscode-textLink-foreground)); }
+  .lbar > div.warn { background: var(--vscode-editorWarning-foreground, #cca700); }
+  .lbar > div.crit { background: var(--vscode-errorForeground); }
   .review {
     margin: 8px 0; padding: 8px; border-radius: 6px;
     border: 1px solid var(--vscode-textLink-foreground);
@@ -1345,6 +1397,15 @@ function getHtml(webview: vscode.Webview): string {
   </div>
   <div id="messages"></div>
   <div id="inputArea">
+    <div id="limitsCard" style="display:none">
+      <div class="lhead">
+        <span id="limitsTitle">Лимиты подписки</span>
+        <span class="spacer"></span>
+        <button id="limitsRefresh" class="secondary" title="Обновить лимиты">⟳</button>
+        <button id="limitsClose" class="secondary" title="Закрыть">✕</button>
+      </div>
+      <div id="limitsBody"></div>
+    </div>
     <div id="queueRow" style="display:none"></div>
     <div id="imgRow" style="display:none"></div>
     <textarea id="input" placeholder="Спросите Kimi… (Enter — отправить, @файл — прикрепить, Ctrl+V — скриншот, /help — команды)"></textarea>
@@ -1526,6 +1587,18 @@ var vscode = window.__kapi;
     return d;
   }
 
+  function limitsMenuItem(text) {
+    var d = document.createElement('div');
+    d.className = 'mi';
+    d.textContent = text;
+    d.addEventListener('click', function (e) {
+      e.stopPropagation();
+      closeAuthMenu();
+      openLimits();
+    });
+    return d;
+  }
+
   function renderAuthMenu() {
     authMenu.innerHTML = '';
     if (currentAuth.kind === 'oauth') {
@@ -1536,7 +1609,7 @@ var vscode = window.__kapi;
       var sep = document.createElement('div');
       sep.className = 'sep';
       authMenu.appendChild(sep);
-      authMenu.appendChild(authMenuItem('📊 Лимиты использования', 'usage'));
+      authMenu.appendChild(limitsMenuItem('📊 Лимиты использования'));
       authMenu.appendChild(authMenuItem('🌐 Сменить способ входа', 'relogin'));
       authMenu.appendChild(authMenuItem('🚪 Выйти из аккаунта', 'logoutOAuth'));
     } else if (currentAuth.kind === 'apiKey') {
@@ -1547,7 +1620,7 @@ var vscode = window.__kapi;
       var sep2 = document.createElement('div');
       sep2.className = 'sep';
       authMenu.appendChild(sep2);
-      authMenu.appendChild(authMenuItem('📊 Лимиты и баланс', 'usage'));
+      authMenu.appendChild(limitsMenuItem('📊 Лимиты и баланс'));
       authMenu.appendChild(authMenuItem('🔑 Сменить API-ключ', 'rekey'));
       authMenu.appendChild(authMenuItem('🌐 Войти через сайт (OAuth)', 'relogin'));
       authMenu.appendChild(authMenuItem('🚪 Удалить API-ключ', 'clearKey'));
@@ -1556,6 +1629,81 @@ var vscode = window.__kapi;
       authMenu.appendChild(authMenuItem('🔑 Ввести API-ключ', 'rekey'));
     }
   }
+
+  // ---------- карточка лимитов подписки (как на сайте kimi.ai) ----------
+  var limitsCard = document.getElementById('limitsCard');
+  var limitsBody = document.getElementById('limitsBody');
+  var limitsTitle = document.getElementById('limitsTitle');
+  var limitsTimer = null;
+
+  function fmtReset(iso) {
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    return d.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  }
+
+  function barRow(name, entry) {
+    var pct = Math.round((entry.usedRatio || 0) * 1000) / 10;
+    var cls = pct >= 90 ? 'crit' : pct >= 70 ? 'warn' : '';
+    var reset = entry.resetAt ? '<div class="lreset">Сброс: ' + fmtReset(entry.resetAt) + '</div>' : '';
+    return '<div class="lrow"><div class="lname"><span>' + name + '</span><span>' + pct + '%</span></div>' +
+      '<div class="lbar"><div class="' + cls + '" style="width:' + Math.min(100, pct) + '%"></div></div>' + reset + '</div>';
+  }
+
+  function renderLimits(m) {
+    limitsCard.style.display = 'block';
+    if (m.error) {
+      limitsBody.innerHTML = '<div class="lrow">' + esc(m.error) + '</div>';
+      return;
+    }
+    var html = '';
+    if (m.usage) {
+      var u = m.usage;
+      if (u.planName) limitsTitle.textContent = 'План ' + u.planName;
+      if (u.limit5h) html += barRow('5-часовое окно (код)', u.limit5h);
+      if (u.limit7d) html += barRow('Недельный лимит', u.limit7d);
+      if (u.monthTotal) html += barRow('Месячный лимит (всего)', u.monthTotal);
+      if (u.monthCode) html += barRow('Месячный лимит (код)', u.monthCode);
+      if (!html) html = '<div class="lrow">Данных о лимитах нет.</div>';
+      if (u.extraBalanceCents != null) {
+        html += '<div class="lrow"><div class="lname"><span>Extra Usage (кошелёк)</span><span>' +
+          (u.extraBalanceCents / 100).toFixed(2) + ' ' + (u.extraCurrency || '') + '</span></div></div>';
+      }
+    } else if (m.balance) {
+      limitsTitle.textContent = 'Баланс платформы Moonshot';
+      html += '<div class="lrow"><div class="lname"><span>Доступно</span><span>¥' + Number(m.balance.available).toFixed(2) +
+        '</span></div><div class="lreset">средства ¥' + Number(m.balance.cash).toFixed(2) +
+        ' + ваучеры ¥' + Number(m.balance.voucher).toFixed(2) + '</div></div>';
+    } else {
+      limitsBody.innerHTML = '<div class="lrow">Не удалось получить данные.</div>';
+      return;
+    }
+    limitsBody.innerHTML = html;
+  }
+
+  function openLimits() {
+    limitsCard.style.display = 'block';
+    limitsBody.innerHTML = '<div class="lrow">Загрузка…</div>';
+    vscode.postMessage({ type: 'getLimits' });
+    if (limitsTimer) clearInterval(limitsTimer);
+    limitsTimer = setInterval(function () {
+      vscode.postMessage({ type: 'getLimits' });
+    }, 60000);
+  }
+
+  function closeLimits() {
+    limitsCard.style.display = 'none';
+    if (limitsTimer) {
+      clearInterval(limitsTimer);
+      limitsTimer = null;
+    }
+  }
+
+  document.getElementById('limitsClose').addEventListener('click', closeLimits);
+  document.getElementById('limitsRefresh').addEventListener('click', function () {
+    limitsBody.innerHTML = '<div class="lrow">Обновление…</div>';
+    vscode.postMessage({ type: 'getLimits' });
+  });
 
   authBtn.addEventListener('click', function (e) {
     e.stopPropagation();
@@ -2170,6 +2318,9 @@ var vscode = window.__kapi;
         break;
       case 'auth':
         setAuthState(m.state);
+        break;
+      case 'limits':
+        renderLimits(m);
         break;
     }
   });
