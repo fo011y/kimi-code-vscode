@@ -13,12 +13,12 @@ A VS Code extension that embeds [Kimi](https://platform.moonshot.ai) (Moonshot A
 
 ## 📥 Download & Install
 
-**➡️ [Download kimi-code.vsix (latest release)](https://github.com/fo011y/kimi-code-vscode/releases/latest/download/kimi-code.vsix)**
+**➡️ [Download kimi-code-0.9.7.vsix (latest release)](https://github.com/fo011y/kimi-code-vscode/releases/latest/download/kimi-code-0.9.7.vsix)**
 
 Then install:
 
 ```bash
-code --install-extension kimi-code.vsix
+code --install-extension kimi-code-0.9.7.vsix
 ```
 
 Or in VS Code: `Ctrl+Shift+P` → **Extensions: Install from VSIX…** → pick the downloaded file.
@@ -26,18 +26,15 @@ Or in VS Code: `Ctrl+Shift+P` → **Extensions: Install from VSIX…** → pick 
 ## 🆕 What’s new in 0.9.7
 
 - **English UI** — the extension is now bilingual: the language follows the VS Code display language (Russian VS Code → Russian, anything else → English). The chat panel, account menu, sign-in dialogs, status bar, subscription limits card and agent prompts are all translated.
-- **Permanent download link** — `releases/latest/download/kimi-code.vsix` always points to the latest build and never goes stale.
+- **Versioned download link** — the file is named like `kimi-code-0.9.7.vsix`; the README link is updated automatically with every release.
 
 Full version history — see [Releases](https://github.com/fo011y/kimi-code-vscode/releases).
-
-## SUMMARY_EN
-English UI — language follows the VS Code display language; permanent download link
 
 ## 📜 Version history
 
 | Version | Highlights |
 |---|---|
-| [0.9.7](https://github.com/fo011y/kimi-code-vscode/releases/tag/v0.9.7) | English UI — language follows the VS Code display language; permanent download link |
+| [0.9.7](https://github.com/fo011y/kimi-code-vscode/releases/tag/v0.9.7) | English UI — language follows the VS Code display language; versioned download link |
 | [0.9.6](https://github.com/fo011y/kimi-code-vscode/releases/tag/v0.9.6) | The "Kimi Chat" editor tab restores itself after a window reload |
 | [0.9.5](https://github.com/fo011y/kimi-code-vscode/releases/tag/v0.9.5) | Runs survive a window reload: task auto-resume, partial answer saved, live feed on panel reopen |
 | [0.9.4](https://github.com/fo011y/kimi-code-vscode/releases/tag/v0.9.4) | State serialization for the chat editor tab |

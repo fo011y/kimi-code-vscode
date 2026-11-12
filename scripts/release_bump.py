@@ -16,10 +16,8 @@ tag = 'v' + ver
 # --- разбираем заметки ---
 notes_raw = io.open('scripts/release_notes.md', encoding='utf-8').read()
 def section(name, nxt):
-    m = re.search(r'## %s\s*\n(.*?)\n(?=## %s)' % (name, nxt), notes_raw, re.S)
-    if not m:
-        m = re.search(r'## %s\s*\n(.*)$' % name, notes_raw, re.S)
-    return m.group(1).strip()
+    m = re.search(r'## %s\s*\n(.*?)(?=\n## |\Z)' % name, notes_raw, re.S)
+    return m.group(1).strip() if m else ''
 
 title = section('TITLE', 'RU')
 ru = section('RU', 'EN')

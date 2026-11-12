@@ -13,12 +13,12 @@
 
 ## 📥 Скачать и установить
 
-**➡️ [Скачать kimi-code.vsix (последний релиз)](https://github.com/fo011y/kimi-code-vscode/releases/latest/download/kimi-code.vsix)**
+**➡️ [Скачать kimi-code-0.9.7.vsix (последний релиз)](https://github.com/fo011y/kimi-code-vscode/releases/latest/download/kimi-code-0.9.7.vsix)**
 
 Затем установите:
 
 ```bash
-code --install-extension kimi-code.vsix
+code --install-extension kimi-code-0.9.7.vsix
 ```
 
 Или в VS Code: `Ctrl+Shift+P` → **Extensions: Install from VSIX…** → выберите скачанный файл.
@@ -26,7 +26,7 @@ code --install-extension kimi-code.vsix
 ## 🆕 Новое в 0.9.7
 
 - **Английский интерфейс** — расширение стало двуязычным: язык выбирается автоматически по языку интерфейса VS Code (русский VS Code → русский, любой другой → английский). Переведены чат-панель, меню аккаунта, диалоги входа, статус-бар, карточка лимитов подписки и системные подсказки агента.
-- **Постоянная ссылка скачивания** — `releases/latest/download/kimi-code.vsix` всегда ведёт на свежую версию, больше не устаревает.
+- **Ссылка скачивания с номером версии** — файл вида `kimi-code-0.9.7.vsix`; ссылка в README обновляется автоматически при каждом релизе.
 
 История всех версий — на странице [релизов](https://github.com/fo011y/kimi-code-vscode/releases).
 
@@ -34,7 +34,7 @@ code --install-extension kimi-code.vsix
 
 | Версия | Что нового |
 |---|---|
-| [0.9.7](https://github.com/fo011y/kimi-code-vscode/releases/tag/v0.9.7) | Английский интерфейс — язык выбирается автоматически по языку VS Code; постоянная ссылка скачивания |
+| [0.9.7](https://github.com/fo011y/kimi-code-vscode/releases/tag/v0.9.7) | Английский интерфейс — язык выбирается автоматически по языку VS Code; ссылка скачивания с номером версии |
 | [0.9.6](https://github.com/fo011y/kimi-code-vscode/releases/tag/v0.9.6) | Вкладка «Kimi Чат» в редакторе сама восстанавливается после перезапуска окна |
 | [0.9.5](https://github.com/fo011y/kimi-code-vscode/releases/tag/v0.9.5) | Прогон переживает перезапуск окна: авторезюме задачи, сохранение частичного ответа, живая лента при переоткрытии панели |
 | [0.9.4](https://github.com/fo011y/kimi-code-vscode/releases/tag/v0.9.4) | Сериализация состояния вкладки чата в редакторе |
