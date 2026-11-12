@@ -30,6 +30,27 @@ code --install-extension kimi-code.vsix
 
 История всех версий — на странице [релизов](https://github.com/fo011y/kimi-code-vscode/releases).
 
+## 📜 История версий
+
+| Версия | Что нового |
+|---|---|
+| [0.9.7](https://github.com/fo011y/kimi-code-vscode/releases/tag/v0.9.7) | Английский интерфейс — язык выбирается автоматически по языку VS Code; постоянная ссылка скачивания |
+| [0.9.6](https://github.com/fo011y/kimi-code-vscode/releases/tag/v0.9.6) | Вкладка «Kimi Чат» в редакторе сама восстанавливается после перезапуска окна |
+| [0.9.5](https://github.com/fo011y/kimi-code-vscode/releases/tag/v0.9.5) | Прогон переживает перезапуск окна: авторезюме задачи, сохранение частичного ответа, живая лента при переоткрытии панели |
+| [0.9.4](https://github.com/fo011y/kimi-code-vscode/releases/tag/v0.9.4) | Сериализация состояния вкладки чата в редакторе |
+| [0.9.3](https://github.com/fo011y/kimi-code-vscode/releases/tag/v0.9.3) | Лимиты подписки как на сайте kimi.ai — карточка с прогресс-барами и датами сброса прямо в чате |
+| [0.9.2](https://github.com/fo011y/kimi-code-vscode/releases/tag/v0.9.2) | Агент не останавливается на полуслове — автоподталкивание, если ход завершён обещанием вместо действия |
+| [0.9.1](https://github.com/fo011y/kimi-code-vscode/releases/tag/v0.9.1) | Авто-обновление OAuth-токена при 401 посреди работы |
+| [0.9.0](https://github.com/fo011y/kimi-code-vscode/releases/tag/v0.9.0) | Чат открывается вкладкой в центре редактора — как у Claude Code; иконка вкладки, singleton-панель |
+| [0.8.5](https://github.com/fo011y/kimi-code-vscode/releases/tag/v0.8.5) | Метки времени у сообщений по умолчанию; время у групп шагов агента |
+| [0.8.4](https://github.com/fo011y/kimi-code-vscode/releases/tag/v0.8.4) | Комментарии агента между шагами — текст больше не сливается в стену; сворачиваемые группы инструментов |
+| [0.8.3](https://github.com/fo011y/kimi-code-vscode/releases/tag/v0.8.3) | Исправлена «мёртвая» панель; самодиагностика вебвью (готовность, квитанции, повтор init) |
+| [0.8.1](https://github.com/fo011y/kimi-code-vscode/releases/tag/v0.8.1) | Диагностика веб-панели в Output-канале; `img-src` в CSP для скриншотов |
+| [0.8.0](https://github.com/fo011y/kimi-code-vscode/releases/tag/v0.8.0) | OAuth-вход через сайт Kimi, очередь сообщений и «молния» ⚡, кнопка «👢 Пнуть» и авто-пинок, автоархивация при лимите токенов, лимиты использования, скриншоты по Ctrl+V, мультисессии с поиском, checkpoints/откат, полная автономность |
+| [0.7.0](https://github.com/fo011y/kimi-code-vscode/releases/tag/v0.7.0) | Вход через сайт Kimi (OAuth, device code flow) — без API-ключа |
+| [0.6.0](https://github.com/fo011y/kimi-code-vscode/releases/tag/v0.6.0) | Панель принятия правок, мультисессии, чат во вкладке редактора, учёт .gitignore, Ctrl+Alt+F |
+| [0.5.0](https://github.com/fo011y/kimi-code-vscode/releases/tag/v0.5.0) | Checkpoints/откат, режим планирования, @файлы, диагностика IDE, история сессий, счётчик токенов |
+
 ## 📸 Скриншоты
 
 Чат Kimi во вкладке редактора — выбор модели, режим автономности, кнопка аккаунта (`✓ Kimi.ai` — вход через сайт выполнен):

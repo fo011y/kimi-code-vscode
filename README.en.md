@@ -30,6 +30,30 @@ Or in VS Code: `Ctrl+Shift+P` → **Extensions: Install from VSIX…** → pick 
 
 Full version history — see [Releases](https://github.com/fo011y/kimi-code-vscode/releases).
 
+## SUMMARY_EN
+English UI — language follows the VS Code display language; permanent download link
+
+## 📜 Version history
+
+| Version | Highlights |
+|---|---|
+| [0.9.7](https://github.com/fo011y/kimi-code-vscode/releases/tag/v0.9.7) | English UI — language follows the VS Code display language; permanent download link |
+| [0.9.6](https://github.com/fo011y/kimi-code-vscode/releases/tag/v0.9.6) | The "Kimi Chat" editor tab restores itself after a window reload |
+| [0.9.5](https://github.com/fo011y/kimi-code-vscode/releases/tag/v0.9.5) | Runs survive a window reload: task auto-resume, partial answer saved, live feed on panel reopen |
+| [0.9.4](https://github.com/fo011y/kimi-code-vscode/releases/tag/v0.9.4) | State serialization for the chat editor tab |
+| [0.9.3](https://github.com/fo011y/kimi-code-vscode/releases/tag/v0.9.3) | Subscription limits like on kimi.ai — a card with progress bars and reset times right in the chat |
+| [0.9.2](https://github.com/fo011y/kimi-code-vscode/releases/tag/v0.9.2) | The agent never stops mid-task — auto-nudge when a turn ends with a promise instead of an action |
+| [0.9.1](https://github.com/fo011y/kimi-code-vscode/releases/tag/v0.9.1) | Automatic OAuth token refresh on a 401 mid-run |
+| [0.9.0](https://github.com/fo011y/kimi-code-vscode/releases/tag/v0.9.0) | Chat opens as a tab in the editor center — like Claude Code; tab icon, singleton panel |
+| [0.8.5](https://github.com/fo011y/kimi-code-vscode/releases/tag/v0.8.5) | Message timestamps on by default; timestamps on agent step groups |
+| [0.8.4](https://github.com/fo011y/kimi-code-vscode/releases/tag/v0.8.4) | Agent comments between steps — no more wall of text; collapsible tool groups |
+| [0.8.3](https://github.com/fo011y/kimi-code-vscode/releases/tag/v0.8.3) | Fixed the "dead" panel; webview self-diagnostics (readiness, acks, init retries) |
+| [0.8.1](https://github.com/fo011y/kimi-code-vscode/releases/tag/v0.8.1) | Webview diagnostics in the Output channel; `img-src` in CSP for screenshots |
+| [0.8.0](https://github.com/fo011y/kimi-code-vscode/releases/tag/v0.8.0) | OAuth sign-in via the Kimi website, message queue & lightning ⚡, "👢 Nudge" & auto-nudge, auto-archiving at the token limit, usage limits, Ctrl+V screenshots, multi-sessions with search, checkpoints/revert, full autonomy |
+| [0.7.0](https://github.com/fo011y/kimi-code-vscode/releases/tag/v0.7.0) | Sign in via the Kimi website (OAuth, device code flow) — no API key |
+| [0.6.0](https://github.com/fo011y/kimi-code-vscode/releases/tag/v0.6.0) | Edit-review panel, multi-sessions, chat in an editor tab, .gitignore awareness, Ctrl+Alt+F |
+| [0.5.0](https://github.com/fo011y/kimi-code-vscode/releases/tag/v0.5.0) | Checkpoints/revert, plan mode, @files, IDE diagnostics, session history, token counter |
+
 ## 📸 Screenshots
 
 Kimi chat in an editor tab — model picker, autonomy mode, account button (`✓ Kimi.ai` = signed in via website):

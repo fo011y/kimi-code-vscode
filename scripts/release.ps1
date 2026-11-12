@@ -43,6 +43,9 @@ $notes = @"
 - **Permanent download link** — `releases/latest/download/kimi-code.vsix` always points to the latest build and never goes stale.
 
 Full version history — see [Releases](https://github.com/fo011y/kimi-code-vscode/releases).
+
+## SUMMARY_EN
+English UI — language follows the VS Code display language; permanent download link
 "@
 $body = @{
   tag_name = 'v0.9.7'

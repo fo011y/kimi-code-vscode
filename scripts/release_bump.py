@@ -51,5 +51,26 @@ def update_readme(path, header, body):
 update_readme('README.md', '## 🆕 Новое в %s' % ver, ru)
 update_readme('README.en.md', '## 🆕 What\u2019s new in %s' % ver, en)
 
+# --- 3. строки в таблицы истории версий ---
+summary_en = section('SUMMARY_EN', None)
+# заголовок вида "v0.9.7 — английский интерфейс" → "Английский интерфейс"
+ru_short = re.sub(r'^v[0-9.]+\s*[—-]\s*', '', title)
+ru_short = ru_short[0].upper() + ru_short[1:] if ru_short else title
+
+def add_history_row(path, header_re, summary):
+    t = io.open(path, encoding='utf-8').read()
+    if ('/tag/v%s)' % ver) in t:
+        return  # строка уже есть
+    row = '| [%s](https://github.com/fo011y/kimi-code-vscode/releases/tag/v%s) | %s |\n' % (ver, ver, summary)
+    t2, n = re.subn(header_re, lambda m: m.group(0) + row, t, count=1)
+    if n == 1:
+        io.open(path, 'w', encoding='utf-8', newline='').write(t2)
+    else:
+        print('ПРЕДУПРЕЖДЕНИЕ: таблица истории не найдена в ' + path)
+
+add_history_row('README.md', r'\| Версия \| Что нового \|\n\|---\|---\|\n', ru_short)
+if summary_en:
+    add_history_row('README.en.md', r'\| Version \| Highlights \|\n\|---\|---\|\n', summary_en)
+
 print('Подготовлено: %s (%s)' % (tag, title))
 print('Теперь: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/release.ps1')
