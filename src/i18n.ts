@@ -276,6 +276,11 @@ const ru = {
   usageTokSep: ' ток. · сессия: ',
   usageTokEnd: ' ток.',
   usageCtx: ' · контекст: ',
+
+  // --- выбор языка ---
+  langItem: '🌐 Язык / Language',
+  langTitle: 'Kimi: язык интерфейса',
+  langAuto: 'Автоматически — как в VS Code',
 };
 
 export type Dict = { readonly [K in keyof typeof ru]: string };
@@ -543,13 +548,34 @@ const en: Dict = {
   usageTokSep: ' tok · session: ',
   usageTokEnd: ' tok',
   usageCtx: ' · context: ',
+
+  langItem: '🌐 Язык / Language',
+  langTitle: 'Kimi: interface language',
+  langAuto: 'Auto — follow VS Code',
 };
 
-/** Активный словарь: ru для русского интерфейса VS Code, en для всех остальных. */
-export const S: Dict = vscode.env.language.toLowerCase().startsWith('ru') ? ru : en;
+/** Язык интерфейса: настройка kimi.language (auto/ru/en), auto — по языку VS Code. */
+function pickLang(): 'ru' | 'en' {
+  const forced = vscode.workspace.getConfiguration('kimi').get<string>('language', 'auto');
+  const lang = (forced && forced !== 'auto' ? forced : vscode.env.language).toLowerCase();
+  return lang.startsWith('ru') ? 'ru' : 'en';
+}
+
+/**
+ * Активный словарь. Объект живой: applyLanguage() обновляет значения на месте,
+ * поэтому все обращения S.xxx видят свежий язык без перезагрузки окна.
+ */
+export const S: Dict = { ...(pickLang() === 'ru' ? ru : en) } as Dict;
 
 /** Локаль для toLocaleString/toLocaleDateString. */
-export const LOCALE = vscode.env.language.toLowerCase().startsWith('ru') ? 'ru-RU' : 'en-US';
+export let LOCALE = pickLang() === 'ru' ? 'ru-RU' : 'en-US';
+
+/** Перечитать настройку kimi.language и применить её к S и LOCALE. */
+export function applyLanguage(): void {
+  const lang = pickLang();
+  Object.assign(S, lang === 'ru' ? ru : en);
+  LOCALE = lang === 'ru' ? 'ru-RU' : 'en-US';
+}
 
 /** Подстановка {0}, {1}, … в строку словаря. */
 export function fmt(template: string, ...args: Array<string | number>): string {

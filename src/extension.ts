@@ -13,7 +13,7 @@ import {
 } from './config';
 import { ApiConfig, ChatMessage, contextWindowForModel, FALLBACK_MODELS, fetchBalance, fetchPlanUsage, listModels, streamChat } from './api';
 import { getAuthState } from './auth';
-import { S, fmt, LOCALE } from './i18n';
+import { S, fmt, LOCALE, applyLanguage } from './i18n';
 
 function selectedCode(): { editor: vscode.TextEditor; text: string; rel: string } | undefined {
   const editor = vscode.window.activeTextEditor;
@@ -139,6 +139,10 @@ export function activate(context: vscode.ExtensionContext): void {
   // синхронизация флагов настроек с веб-панелью
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration('kimi.language')) {
+        applyLanguage();
+        provider.refreshLocale();
+      }
       if (e.affectsConfiguration('kimi')) {
         provider.postSettings();
         void updateStatusBar();
@@ -154,6 +158,20 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.window.showInformationMessage(S.keySaved);
     void provider.postAuthState();
     void updateStatusBar();
+  });
+
+  // принудительная смена языка интерфейса (меню аккаунта в чате → «🌐 Язык / Language»)
+  cmd('kimi.setLanguage', async () => {
+    const cfg = vscode.workspace.getConfiguration('kimi');
+    const cur = cfg.get<string>('language', 'auto');
+    const items = [
+      { label: S.langAuto, value: 'auto' },
+      { label: 'Русский', value: 'ru' },
+      { label: 'English', value: 'en' },
+    ].map((it) => ({ ...it, description: it.value === cur ? S.currentMark : '' }));
+    const pick = await vscode.window.showQuickPick(items, { title: S.langTitle });
+    if (!pick || pick.value === cur) return;
+    await cfg.update('language', pick.value, vscode.ConfigurationTarget.Global);
   });
 
   cmd('kimi.login', async () => {

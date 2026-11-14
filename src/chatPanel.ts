@@ -397,6 +397,19 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     });
   }
 
+  /**
+   * Смена языка интерфейса: пересоздаёт HTML всех панелей (сайдбар + вкладка
+   * редактора) и заново отправляет им состояние. Повторная инициализация
+   * безопасна: обработчик 'history' в странице очищает контейнер сообщений.
+   */
+  refreshLocale(): void {
+    for (const wv of this.webviews) {
+      wv.html = getHtml(wv);
+      setTimeout(() => this.initWebview(wv), 800);
+      setTimeout(() => this.initWebview(wv), 2500);
+    }
+  }
+
   private async onMessage(m: any): Promise<void> {
     const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     switch (m?.type) {
@@ -445,6 +458,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         else if (m.action === 'usage') await vscode.commands.executeCommand('kimi.showUsage');
         else if (m.action === 'logoutOAuth') await vscode.commands.executeCommand('kimi.logoutDirect', 'oauth');
         else if (m.action === 'clearKey') await vscode.commands.executeCommand('kimi.logoutDirect', 'apiKey');
+        else if (m.action === 'language') await vscode.commands.executeCommand('kimi.setLanguage');
         break;
       case 'newSession':
         this.createSession();
@@ -1672,6 +1686,7 @@ var L = ${JSON.stringify({ ...S, locale: LOCALE })};
       sep.className = 'sep';
       authMenu.appendChild(sep);
       authMenu.appendChild(limitsMenuItem(L.limitsItem));
+      authMenu.appendChild(authMenuItem(L.langItem, 'language'));
       authMenu.appendChild(authMenuItem(L.changeLoginItem, 'relogin'));
       authMenu.appendChild(authMenuItem(L.logoutItem, 'logoutOAuth'));
     } else if (currentAuth.kind === 'apiKey') {
@@ -1683,12 +1698,14 @@ var L = ${JSON.stringify({ ...S, locale: LOCALE })};
       sep2.className = 'sep';
       authMenu.appendChild(sep2);
       authMenu.appendChild(limitsMenuItem(L.limitsBalanceItem));
+      authMenu.appendChild(authMenuItem(L.langItem, 'language'));
       authMenu.appendChild(authMenuItem(L.changeKeyItem, 'rekey'));
       authMenu.appendChild(authMenuItem(L.loginOauthItem, 'relogin'));
       authMenu.appendChild(authMenuItem(L.clearKeyItem, 'clearKey'));
     } else {
       authMenu.appendChild(authMenuItem(L.loginOauthItem, 'relogin'));
       authMenu.appendChild(authMenuItem(L.enterKeyItem, 'rekey'));
+      authMenu.appendChild(authMenuItem(L.langItem, 'language'));
     }
   }
 

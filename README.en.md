@@ -13,27 +13,26 @@ A VS Code extension that embeds [Kimi](https://platform.moonshot.ai) (Moonshot A
 
 ## 📥 Download & Install
 
-**➡️ [Download kimi-code-0.9.7.vsix (latest release)](https://github.com/fo011y/kimi-code-vscode/releases/latest/download/kimi-code-0.9.7.vsix)**
+**➡️ [Download kimi-code-0.9.8.vsix (latest release)](https://github.com/fo011y/kimi-code-vscode/releases/latest/download/kimi-code-0.9.8.vsix)**
 
 Then install:
 
 ```bash
-code --install-extension kimi-code-0.9.7.vsix
+code --install-extension kimi-code-0.9.8.vsix
 ```
 
 Or in VS Code: `Ctrl+Shift+P` → **Extensions: Install from VSIX…** → pick the downloaded file.
 
-## 🆕 What’s new in 0.9.7
+## 🆕 What’s new in 0.9.8
 
-- **English UI** — the extension is now bilingual: the language follows the VS Code display language (Russian VS Code → Russian, anything else → English). The chat panel, account menu, sign-in dialogs, status bar, subscription limits card and agent prompts are all translated.
-- **Versioned download link** — the file is named like `kimi-code-0.9.7.vsix`; the README link is updated automatically with every release.
-
-Full version history — see [Releases](https://github.com/fo011y/kimi-code-vscode/releases).
+- **Forced interface language** — new "🌐 Язык / Language" item in the chat account menu (same place as usage limits) and the `kimi.language` setting: auto (follow VS Code), Russian or English. The UI switches on the fly, no window reload — chat, menus, dialogs and the status bar change immediately.
+- `Kimi: Язык интерфейса / Interface Language` command in the command palette (Ctrl+Shift+P).
 
 ## 📜 Version history
 
 | Version | Highlights |
 |---|---|
+| [0.9.8](https://github.com/fo011y/kimi-code-vscode/releases/tag/v0.9.8) | Forced interface language switch (auto / Russian / English) — changes on the fly, no reload |
 | [0.9.7](https://github.com/fo011y/kimi-code-vscode/releases/tag/v0.9.7) | English UI — language follows the VS Code display language; versioned download link |
 | [0.9.6](https://github.com/fo011y/kimi-code-vscode/releases/tag/v0.9.6) | The "Kimi Chat" editor tab restores itself after a window reload |
 | [0.9.5](https://github.com/fo011y/kimi-code-vscode/releases/tag/v0.9.5) | Runs survive a window reload: task auto-resume, partial answer saved, live feed on panel reopen |
@@ -67,7 +66,7 @@ Kimi in the status bar — bottom right, next to Claude Code:
 
 ## Features
 
-- **Bilingual UI** — Russian and English, chosen automatically from the VS Code display language (Russian VS Code → Russian chat, anything else → English).
+- **Bilingual UI** — Russian and English. By default the language follows the VS Code display language; you can force it on the fly: the `kimi.language` setting or the "🌐 Язык / Language" item in the chat account menu (same place as usage limits).
 - **Sidebar chat panel** — streaming conversation with Kimi. The selected code is automatically attached as context.
 - **Code actions** — from the editor context menu (select code → right click):
   - `Kimi: Explain Selection`, `Kimi: Fix Selection`, `Kimi: Refactor Selection`, `Kimi: Generate Tests`
